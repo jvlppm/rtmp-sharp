@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System;
+using System.Net.Sockets;
 using System.Threading.Tasks;
 
 // csharp: hina/linq/tcpclientex.cs [snipped]
@@ -8,12 +9,34 @@ namespace Hina.Net
     {
         public static async Task<TcpClient> ConnectAsync(string host, int port, bool exclusiveAddressUse = true)
         {
-            var x = new TcpClient() { NoDelay = true, ExclusiveAddressUse = exclusiveAddressUse };
+            try {
+                return await ConnectTcpDefault(host, port, exclusiveAddressUse);
+            }
+            catch (PlatformNotSupportedException) {
+            }
 
-            SocketEx.FastSocket(x.Client);
-            await x.ConnectAsync(host, port);
+            return await ConnectTcpCompat(host, port);
+        }
 
-            return x;
+        static async Task<TcpClient> ConnectTcpDefault(string host, int port, bool exclusiveAddressUse)
+        {
+            var tcp = new TcpClient
+            {
+                NoDelay = true,
+                ExclusiveAddressUse = exclusiveAddressUse
+            };
+
+            SocketEx.FastSocket(tcp.Client);
+
+            await tcp.ConnectAsync(host, port);
+            return tcp;
+        }
+
+        static async Task<TcpClient> ConnectTcpCompat(string host, int port)
+        {
+            var tcp = new TcpClient();
+            await tcp.ConnectAsync(host, port);
+            return tcp;
         }
     }
 }
