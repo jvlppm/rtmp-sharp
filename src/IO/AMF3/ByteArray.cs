@@ -33,7 +33,7 @@ namespace RtmpSharp.IO.AMF3
             using (var stream = algorithm == Compression.Zlib ? new ZlibStream(output, CompressionMode.Compress, true) : new DeflateStream(output, CompressionMode.Compress, true))
             {
                 stream.Write(Buffer.Array, Buffer.Offset, Buffer.Count);
-                Buffer = output.GetBuffer();
+                Buffer = output.GetBufferSegment();
             }
         }
 
@@ -44,7 +44,7 @@ namespace RtmpSharp.IO.AMF3
             using (var output = new MemoryStream())
             {
                 stream.CopyTo(output);
-                Buffer = output.GetBuffer();
+                Buffer = output.GetBufferSegment();
             }
         }
 

@@ -6,7 +6,7 @@ namespace Hina.IO
 {
     public static class MemoryStreamExtensions
     {
-        public static ArraySegment<byte> GetBuffer(this MemoryStream stream)
+        public static ArraySegment<byte> GetBufferSegment(this MemoryStream stream)
         {
             if (stream.TryGetBuffer(out var buffer))
                 return buffer;
