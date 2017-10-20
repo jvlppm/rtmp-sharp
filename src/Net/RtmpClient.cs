@@ -15,6 +15,7 @@ using Konseki;
 using RtmpSharp.Messaging;
 using RtmpSharp.Messaging.Messages;
 using RtmpSharp.Net.Messages;
+using System.Reflection;
 
 namespace RtmpSharp.Net
 {
@@ -23,6 +24,8 @@ namespace RtmpSharp.Net
         public event EventHandler<MessageReceivedEventArgs>    MessageReceived;
         public event EventHandler<ClientDisconnectedException> Disconnected;
         public event EventHandler<Exception>                   CallbackException;
+
+        public object ClientDelegate { get; set; }
 
         // the cancellation source (and token) that this client internally uses to signal disconnection
         readonly CancellationToken token;
@@ -131,6 +134,25 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
+                            var argTypes = i.Arguments.Select(arg => arg == null? typeof(object) : arg.GetType()).ToArray();
+                            if (ClientDelegate != null) {
+                                try {
+                                    var clientMethod = ClientDelegate.GetType().GetMethod(i.MethodName, argTypes);
+                                    if (clientMethod == null) {
+                                        Kon.Warn($"Public method not found at ClientDelegate: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})");
+                                    }
+                                    else {
+                                        clientMethod.Invoke(ClientDelegate, i.Arguments);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Kon.Warn($"Error invoking dynamic method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})", ex);
+                                }
+                            }
+                            else {
+                                Kon.DebugWarn($"No handler for method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))}). Use ClientDelegate property.");
+                            }
                             break;
                     }
 
@@ -191,6 +213,9 @@ namespace RtmpSharp.Net
             public string SwfUrl;
 
             public object[] Arguments;
+
+            public object ClientDelegate;
+
             public RemoteCertificateValidationCallback Validate;
         }
 
@@ -214,6 +239,8 @@ namespace RtmpSharp.Net
             var client      = new RtmpClient(context);
             var reader      = new Reader(client, stream, context, client.token);
             var writer      = new Writer(client, stream, context, client.token);
+
+            client.ClientDelegate = options.ClientDelegate;
 
             reader.RunAsync().Forget();
             writer.RunAsync(chunkLength).Forget();
