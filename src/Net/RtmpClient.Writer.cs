@@ -198,7 +198,8 @@ namespace RtmpSharp.Net
                         throw NotSupportedException("data-amf0");
 
                     case PacketContentType.SharedObjectAmf0:
-                        throw NotSupportedException("sharedobject-amf0");
+                        WriteCommand(ObjectEncoding.Amf0, w, message);
+                        break;
 
                     case PacketContentType.CommandAmf0:
                         WriteCommand(ObjectEncoding.Amf0, w, message);
@@ -208,7 +209,9 @@ namespace RtmpSharp.Net
                         throw NotSupportedException("data-amf3");
 
                     case PacketContentType.SharedObjectAmf3:
-                        throw NotSupportedException("sharedobject-amf0");
+                        w.WriteByte((byte)0);
+                        WriteCommand(ObjectEncoding.Amf3, w, message);
+                        break;
 
                     case PacketContentType.CommandAmf3:
                         // first byte is an encoding specifier byte.
@@ -228,7 +231,7 @@ namespace RtmpSharp.Net
             }
 
             // most rtmp servers we are interested in only support amf3 via an amf0 envelope
-            static void WriteCommand(ObjectEncoding encoding, AmfWriter w, RtmpMessage message)
+            void WriteCommand(ObjectEncoding encoding, AmfWriter w, RtmpMessage message)
             {
                 switch (message)
                 {
@@ -244,6 +247,22 @@ namespace RtmpSharp.Net
                         foreach (var arg in request.Arguments ?? EmptyArray<object>.Instance)
                             w.WriteBoxedAmf0Object(encoding, arg);
 
+                        break;
+
+                    case SharedObject shared:
+                        w.WriteUtfPrefixed(shared.Name);
+                        w.WriteInt32(shared.Version);
+                        w.WriteInt32(shared.Persistence? 2 : 0); // flags?
+                        w.WriteInt32(0); // flags?
+
+                        var dataWriter = new AmfWriter(context);
+                        foreach (var ev in shared.events) {
+                            w.WriteByte((byte)ev.Type);
+                            ev.Encode(encoding, dataWriter);
+                            w.WriteInt32(dataWriter.Span.Length);
+                            w.WriteBytes(dataWriter.Span);
+                            dataWriter.Reset();
+                        }
                         break;
 
                     default:

@@ -327,6 +327,19 @@ namespace RtmpSharp.Net
                 await InternalCallAsync(request, chunkStreamId: 3));
         }
 
+        public async Task<IDictionary<string, object>> GetSharedObjectAsync(string name, bool persistence = false, bool secure = false)
+        {
+            Check.NotNull(name);
+
+            var obj = SharedObject.GetRemote(name, persistence, secure);
+
+            queue(obj, 3);
+
+            var tcs = new TaskCompletionSource<IDictionary<string, object>>();
+            //throw new System.NotImplementedException();
+            return await tcs.Task;
+        }
+
         public async Task<bool> SubscribeAsync(string endpoint, string destination, string subtopic, string clientId)
         {
             Check.NotNull(endpoint, destination, subtopic, clientId);
