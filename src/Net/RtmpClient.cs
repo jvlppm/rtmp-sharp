@@ -387,6 +387,12 @@ namespace RtmpSharp.Net
             return await SharedObject.GetRemoteAsync(this, name, persistent);
         }
 
+        public SharedObject GetRemoteSharedObject(string name, bool persistent = false)
+        {
+            Check.NotNull(name);
+            return SharedObject.GetRemote(this, name, persistent);
+        }
+
         public async Task<bool> SubscribeAsync(string endpoint, string destination, string subtopic, string clientId)
         {
             Check.NotNull(endpoint, destination, subtopic, clientId);

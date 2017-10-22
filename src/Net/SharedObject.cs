@@ -13,22 +13,28 @@ namespace RtmpSharp.Net
         public static bool TryGetByName(string name, out SharedObject shared)
             => Connected.TryGetValue(name, out shared);
 
-        internal static async Task<SharedObject> GetRemoteAsync(RtmpClient rtmpClient, string name, bool persistent)
+        internal static SharedObject GetRemote(RtmpClient rtmpClient, string name, bool persistent)
         {
             SharedObject shared;
-            if (!TryGetByName(name, out shared)) {
+            if (!Connected.TryGetValue(name, out shared)) {
                 shared = new SharedObject(rtmpClient, name, persistent);
                 Connected[name] = shared;
                 shared.message.Events.Add(new SharedObjectMessage.ConnectEvent());
                 shared.Flush();
-                await shared.initializeCompletion.Task;
             }
 
             return shared;
         }
 
+        internal static async Task<SharedObject> GetRemoteAsync(RtmpClient rtmpClient, string name, bool persistent)
+        {
+            SharedObject shared = GetRemote(rtmpClient, name, persistent);
+            await shared.initializeCompletion.Task;
+            return shared;
+        }
+
+        public IData Data => data;
         public dynamic DynamicData => data;
-        public IDictionary<string, object> Data => data;
 
         readonly DataAcessor data;
         readonly RtmpClient client;
@@ -83,6 +89,8 @@ namespace RtmpSharp.Net
             if (initialization == true) {
                 initializeCompletion.TrySetResult(null);
             }
+
+            data.FireSyncCompleted();
         }
     }
 }

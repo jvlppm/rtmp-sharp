@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Dynamic;
 using System.Threading.Tasks;
 using RtmpSharp.Net.Messages;
@@ -9,17 +10,27 @@ namespace RtmpSharp.Net
 {
     partial class SharedObject
     {
-        class DataAcessor : DynamicObject, IDictionary<string, object>
+        public interface IData : IDictionary<string, object>
+        {
+            event EventHandler OnSync;
+        }
+
+        class DataAcessor : DynamicObject, IData
         {
             public readonly IDictionary<string, object> Properties = new Dictionary<string, object>();
 
             readonly SharedObject owner;
+
+            public event EventHandler OnSync;
 
             public DataAcessor(SharedObject owner)
             {
                 this.owner = owner;
             }
 
+            public void FireSyncCompleted() => OnSync?.Invoke(this, EventArgs.Empty);
+
+            #region DynamicObject implementation
             public override bool TryGetMember(GetMemberBinder binder, out object value)
             {
                 return Properties.TryGetValue(binder.Name, out value);
@@ -35,7 +46,9 @@ namespace RtmpSharp.Net
             {
                 return Remove(binder.Name);
             }
+            #endregion
 
+            #region IDictionary implementation
             public object this[string key] {
                 get => Properties[key];
                 set {
@@ -117,6 +130,7 @@ namespace RtmpSharp.Net
             {
                 return Properties.GetEnumerator();
             }
+            #endregion
         }
     }
 }
