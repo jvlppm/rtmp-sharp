@@ -25,6 +25,7 @@ namespace RtmpSharp.Net
         public event EventHandler<ClientDisconnectedException> Disconnected;
         public event EventHandler<Exception>                   CallbackException;
 
+        // Object to handle server invocations.
         public object ClientDelegate { get; set; }
 
         // the cancellation source (and token) that this client internally uses to signal disconnection
@@ -96,6 +97,12 @@ namespace RtmpSharp.Net
                     queue(new UserControlMessage(UserControlMessage.Type.PingResponse, u.Values), 2);
                     break;
 
+                case SharedObjectMessage s:
+                    SharedObject shared;
+                    if (SharedObject.TryGetByName(s.Name, out shared))
+                        shared.InternalSync(s);
+                    break;
+
                 case Invoke i:
                     var param = i.Arguments?.FirstOrDefault();
 
@@ -134,29 +141,39 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
-                            var argTypes = i.Arguments.Select(arg => arg == null? typeof(object) : arg.GetType()).ToArray();
-                            if (ClientDelegate != null) {
-                                try {
-                                    var clientMethod = ClientDelegate.GetType().GetMethod(i.MethodName, argTypes);
-                                    if (clientMethod == null) {
-                                        Kon.Warn($"Public method not found at ClientDelegate: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})");
-                                    }
-                                    else {
-                                        clientMethod.Invoke(ClientDelegate, i.Arguments);
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Kon.Warn($"Error invoking dynamic method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})", ex);
-                                }
-                            }
-                            else {
-                                Kon.DebugWarn($"No handler for method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))}). Use ClientDelegate property.");
-                            }
+                            InternalDispatchEvent(i);
                             break;
                     }
 
                     break;
+            }
+        }
+
+        void InternalDispatchEvent(Invoke i)
+        {
+            var argTypes = i.Arguments.Select(arg => arg == null ? typeof(object) : arg.GetType()).ToArray();
+            if (ClientDelegate != null)
+            {
+                try
+                {
+                    var clientMethod = ClientDelegate.GetType().GetMethod(i.MethodName, argTypes);
+                    if (clientMethod == null)
+                    {
+                        Kon.Warn($"Public method not found at ClientDelegate: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})");
+                    }
+                    else
+                    {
+                        clientMethod.Invoke(ClientDelegate, i.Arguments);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Kon.Warn($"Error invoking dynamic method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})", ex);
+                }
+            }
+            else
+            {
+                Kon.DebugWarn($"No handler for method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))}). Use ClientDelegate property.");
             }
         }
 
@@ -176,6 +193,16 @@ namespace RtmpSharp.Net
             var task = callbacks.Create(request.InvokeId);
 
             queue(request, chunkStreamId);
+            return task;
+        }
+
+        internal Task<object> InternalSendAsync(SharedObjectMessage message)
+        {
+            if (disconnected) throw DisconnectedException();
+
+            var task = callbacks.Create(NextInvokeId());
+
+            queue(message, 3);
             return task;
         }
 
@@ -354,17 +381,10 @@ namespace RtmpSharp.Net
                 await InternalCallAsync(request, chunkStreamId: 3));
         }
 
-        public async Task<IDictionary<string, object>> GetSharedObjectAsync(string name, bool persistence = false, bool secure = false)
+        public async Task<SharedObject> GetRemoteSharedObjectAsync(string name, bool persistent = false)
         {
             Check.NotNull(name);
-
-            var obj = SharedObject.GetRemote(name, persistence, secure);
-
-            queue(obj, 3);
-
-            var tcs = new TaskCompletionSource<IDictionary<string, object>>();
-            //throw new System.NotImplementedException();
-            return await tcs.Task;
+            return await SharedObject.GetRemoteAsync(this, name, persistent);
         }
 
         public async Task<bool> SubscribeAsync(string endpoint, string destination, string subtopic, string clientId)

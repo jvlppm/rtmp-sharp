@@ -198,7 +198,7 @@ namespace RtmpSharp.Net
                         throw NotSupportedException("data-amf0");
 
                     case PacketContentType.SharedObjectAmf0:
-                        WriteCommand(ObjectEncoding.Amf0, w, message);
+                        WriteSharedObject(ObjectEncoding.Amf0, w, (SharedObjectMessage)message);
                         break;
 
                     case PacketContentType.CommandAmf0:
@@ -210,7 +210,7 @@ namespace RtmpSharp.Net
 
                     case PacketContentType.SharedObjectAmf3:
                         w.WriteByte((byte)0);
-                        WriteCommand(ObjectEncoding.Amf3, w, message);
+                        WriteSharedObject(ObjectEncoding.Amf3, w, (SharedObjectMessage)message);
                         break;
 
                     case PacketContentType.CommandAmf3:
@@ -249,24 +249,25 @@ namespace RtmpSharp.Net
 
                         break;
 
-                    case SharedObject shared:
-                        w.WriteUtfPrefixed(shared.Name);
-                        w.WriteInt32(shared.Version);
-                        w.WriteInt32(shared.Persistence? 2 : 0); // flags?
-                        w.WriteInt32(0); // flags?
-
-                        var dataWriter = new AmfWriter(context);
-                        foreach (var ev in shared.events) {
-                            w.WriteByte((byte)ev.Type);
-                            ev.Encode(encoding, dataWriter);
-                            w.WriteInt32(dataWriter.Span.Length);
-                            w.WriteBytes(dataWriter.Span);
-                            dataWriter.Reset();
-                        }
-                        break;
-
                     default:
                         throw new ArgumentOutOfRangeException();
+                }
+            }
+
+            void WriteSharedObject(ObjectEncoding encoding, AmfWriter w, SharedObjectMessage message)
+            {
+                w.WriteUtfPrefixed(message.Name);
+                w.WriteInt32(message.Version);
+                w.WriteInt32(message.Persistent? 2 : 0); // flags?
+                w.WriteInt32(0);                         // flags?
+
+                var dataWriter = new AmfWriter(context);
+                foreach (var ev in message.Events) {
+                    w.WriteByte((byte)ev.Type);
+                    ev.Encode(encoding, dataWriter);
+                    w.WriteInt32(dataWriter.Span.Length);
+                    w.WriteBytes(dataWriter.Span);
+                    dataWriter.Reset();
                 }
             }
 

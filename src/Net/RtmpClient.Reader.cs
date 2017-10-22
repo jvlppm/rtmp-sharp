@@ -317,7 +317,7 @@ namespace RtmpSharp.Net
                         throw NotSupportedException("data-amf0");
 
                     case PacketContentType.SharedObjectAmf0:
-                        throw NotSupportedException("sharedobject-amf0");
+                        return ReadSharedObject(ObjectEncoding.Amf0, r);
 
                     case PacketContentType.CommandAmf0:
                         return ReadCommand(ObjectEncoding.Amf0, contentType, r);
@@ -326,7 +326,7 @@ namespace RtmpSharp.Net
                         throw NotSupportedException("data-amf3");
 
                     case PacketContentType.SharedObjectAmf3:
-                        throw NotSupportedException("sharedobject-amf0");
+                        return ReadSharedObject(ObjectEncoding.Amf3, r);
 
                     case PacketContentType.CommandAmf3:
                         var encoding = (ObjectEncoding)r.ReadByte();
@@ -338,6 +338,50 @@ namespace RtmpSharp.Net
                     default:
                         throw NotSupportedException($"unknown ({contentType})");
                 }
+            }
+
+            RtmpMessage ReadSharedObject(ObjectEncoding encoding, AmfReader r)
+            {
+                if (encoding == ObjectEncoding.Amf3) {
+                    r.ReadByte(); // Should be zero
+                }
+
+                var name = r.ReadUtf();
+                var version = r.ReadInt32();
+                var flags1 = r.ReadInt32();
+                var flags2 = r.ReadInt32();
+
+                var message = new SharedObjectMessage(name, persistent: (flags1 & 2) != 0) {
+                    Version = version
+                };
+
+                while (r.Remaining > 0)
+                {
+                    var type = (SharedObjectMessage.EventType)r.ReadByte();
+                    var dataLength = r.ReadInt32();
+                    var initialPosition = r.Position;
+
+                    switch (type)
+                    {
+                        case SharedObjectMessage.EventType.ConnectSuccess:
+                            message.Events.Add(new SharedObjectMessage.ConnectSuccessEvent());
+                            break;
+
+                        case SharedObjectMessage.EventType.UpdateData:
+                            message.Events.Add(new SharedObjectMessage.UpdateDataEvent(
+                                name: r.ReadUtf(),
+                                value: r.ReadAmf0Object()));
+                            break;
+
+                        default:
+                            message.Events.Add(new SharedObjectMessage.UnsupportedEvent(
+                                type: type,
+                                data: r.ReadSpan(dataLength)));
+                            break;
+                    }
+                }
+
+                return message;
             }
 
             static RtmpMessage ReadCommand(ObjectEncoding encoding, PacketContentType type, AmfReader r)
