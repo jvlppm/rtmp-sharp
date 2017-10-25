@@ -10,9 +10,8 @@ namespace RtmpSharp.Net
 {
     partial class SharedObject
     {
-        public interface IData : IDictionary<string, object>
+        public interface IData : IDictionary<string, object>, INotifyPropertyChanged
         {
-            event EventHandler OnSync;
         }
 
         class DataAcessor : DynamicObject, IData
@@ -21,19 +20,25 @@ namespace RtmpSharp.Net
 
             readonly SharedObject owner;
 
-            public event EventHandler OnSync;
+            public event PropertyChangedEventHandler PropertyChanged;
 
             public DataAcessor(SharedObject owner)
             {
                 this.owner = owner;
             }
 
-            public void FireSyncCompleted() => OnSync?.Invoke(this, EventArgs.Empty);
+            public void FirePropertyChanged(string propertyName)
+                => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
             #region DynamicObject implementation
             public override bool TryGetMember(GetMemberBinder binder, out object value)
             {
                 return Properties.TryGetValue(binder.Name, out value);
+                /*if (!Properties.TryGetValue(binder.Name, out value)) {
+                    value = null;
+                }
+
+                return true;*/
             }
 
             public override bool TrySetMember(SetMemberBinder binder, object value)

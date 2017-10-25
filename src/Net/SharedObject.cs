@@ -33,6 +33,10 @@ namespace RtmpSharp.Net
             return shared;
         }
 
+        public event EventHandler OnSync;
+
+        public IClientDelegate ClientDelegate;
+
         public IData Data => data;
         public dynamic DynamicData => data;
 
@@ -78,6 +82,15 @@ namespace RtmpSharp.Net
 
                     case SharedObjectMessage.UpdateDataEvent data:
                         this.data.Properties[data.Name] = data.Value;
+                        this.data.FirePropertyChanged(data.Name);
+                        break;
+
+                    case SharedObjectMessage.SendMessageEvent message:
+                        ClientDelegate?.Invoke(message.Name, message.Parameters);
+                        break;
+
+                    case SharedObjectMessage.ClearDataEvent clear:
+                        this.data.Properties.Clear();
                         break;
 
                     case SharedObjectMessage.UnsupportedEvent unsupported:
@@ -90,7 +103,7 @@ namespace RtmpSharp.Net
                 initializeCompletion.TrySetResult(null);
             }
 
-            data.FireSyncCompleted();
+            OnSync?.Invoke(this, EventArgs.Empty);
         }
     }
 }

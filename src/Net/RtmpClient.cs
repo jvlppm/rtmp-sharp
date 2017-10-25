@@ -26,7 +26,7 @@ namespace RtmpSharp.Net
         public event EventHandler<Exception>                   CallbackException;
 
         // Object to handle server invocations.
-        public object ClientDelegate { get; set; }
+        public IClientDelegate ClientDelegate { get; set; }
 
         // the cancellation source (and token) that this client internally uses to signal disconnection
         readonly CancellationToken token;
@@ -141,39 +141,11 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
-                            InternalDispatchEvent(i);
+                            ClientDelegate?.Invoke(i.MethodName, i.Arguments);
                             break;
                     }
 
                     break;
-            }
-        }
-
-        void InternalDispatchEvent(Invoke i)
-        {
-            var argTypes = i.Arguments.Select(arg => arg == null ? typeof(object) : arg.GetType()).ToArray();
-            if (ClientDelegate != null)
-            {
-                try
-                {
-                    var clientMethod = ClientDelegate.GetType().GetMethod(i.MethodName, argTypes);
-                    if (clientMethod == null)
-                    {
-                        Kon.Warn($"Public method not found at ClientDelegate: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})");
-                    }
-                    else
-                    {
-                        clientMethod.Invoke(ClientDelegate, i.Arguments);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Kon.Warn($"Error invoking dynamic method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))})", ex);
-                }
-            }
-            else
-            {
-                Kon.DebugWarn($"No handler for method: {i.MethodName} ({string.Join(", ", argTypes.Select(t => t.Name))}). Use ClientDelegate property.");
             }
         }
 
@@ -241,7 +213,7 @@ namespace RtmpSharp.Net
 
             public object[] Arguments;
 
-            public object ClientDelegate;
+            public IClientDelegate ClientDelegate;
 
             public RemoteCertificateValidationCallback Validate;
         }

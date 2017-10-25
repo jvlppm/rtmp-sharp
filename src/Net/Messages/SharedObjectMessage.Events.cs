@@ -38,7 +38,7 @@ namespace RtmpSharp.Net.Messages
             public ConnectSuccessEvent() : base(EventType.ConnectSuccess) { }
         }
 
-        internal class UpdateDataEvent : Event
+        public class UpdateDataEvent : Event
         {
             public readonly string Name;
             public readonly object Value;
@@ -48,6 +48,23 @@ namespace RtmpSharp.Net.Messages
             {
                 Name = name;
                 Value = value;
+            }
+        }
+
+        public class ClearDataEvent : Event {
+            public ClearDataEvent() : base(EventType.ClearData) { }
+        }
+
+        public class SendMessageEvent : Event
+        {
+            public readonly string Name;
+            public readonly object[] Parameters;
+
+            public SendMessageEvent(string name, object[] parameters)
+                : base(EventType.SendMessage)
+            {
+                Name = name;
+                Parameters = parameters;
             }
         }
 
