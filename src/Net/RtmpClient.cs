@@ -116,8 +116,27 @@ namespace RtmpSharp.Net
 
                         case "_error":
                             // unwrap the flex wrapper object if it is present
-                            var b = param as ErrorMessage;
-                            callbacks.SetException(i.InvokeId, b != null ? new InvocationException(b) : new InvocationException());
+                            switch (param) {
+                                case string str:
+                                    callbacks.SetException(i.InvokeId, new Exception(str));
+                                    break;
+                                case AsObject obj:
+                                    callbacks.SetException(i.InvokeId, new InvocationException() {
+                                        FaultCode = obj.TryGetValue("code", out var code) && code != null? code.ToString() : null,
+                                        FaultString = obj.TryGetValue("description", out var desc) && desc != null? desc.ToString() : null,
+                                        RootCause = obj.TryGetValue("application", out var app) && app != null? app.ToString() : null,
+                                        ExtendedData = obj,
+                                    });
+                                    break;
+
+                                case ErrorMessage b:
+                                    callbacks.SetException(i.InvokeId, new InvocationException(b));
+                                    break;
+
+                                default:
+                                    callbacks.SetException(i.InvokeId, new InvocationException());
+                                    break;
+                            }
                             break;
 
                         case "receive":
