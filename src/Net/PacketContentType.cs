@@ -2,6 +2,7 @@
 {
     enum PacketContentType : byte
     {
+		Unknown                   = 0,
         SetChunkSize              = 1,
         AbortMessage              = 2,
         Acknowledgement           = 3,
