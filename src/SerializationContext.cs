@@ -13,7 +13,7 @@ namespace RtmpSharp
         // the largest buffer size we allocate in order to read and deserialize packets and object trees. if a remote
         // peer attempts to send us a packet or object that is larger than this value, an exception is thrown and the
         // connection is closed.
-        public int MaximumReadAllocation = 4192;
+		public int MaximumReadAllocation = int.MaxValue;
 
 
         readonly TypeRegistry registry;
