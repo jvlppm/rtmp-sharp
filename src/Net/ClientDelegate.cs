@@ -63,6 +63,7 @@ namespace RtmpSharp.Net
                 {
                     var argTypes = args.Select(arg => arg == null ? typeof(object) : arg.GetType()).ToArray();
                     Kon.DebugWarn($"Public method not found at ClientDelegate: {method} ({string.Join(", ", argTypes.Select(t => t.Name))})");
+                    return;
                 }
 
                 try
