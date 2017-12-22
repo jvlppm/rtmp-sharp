@@ -160,7 +160,18 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
-                            ClientDelegate?.Invoke(i.MethodName, i.Arguments);
+                            if (ClientDelegate != null)
+                            {
+                                var synchronizationContext = SynchronizationContext.Current;
+                                if (context == null)
+                                {
+                                    ClientDelegate.Invoke(i.MethodName, i.Arguments);
+                                }
+                                else
+                                {
+                                    synchronizationContext.Post(s => ClientDelegate.Invoke(i.MethodName, i.Arguments), null);
+                                }
+                            }
                             break;
                     }
 
