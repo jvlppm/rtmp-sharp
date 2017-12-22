@@ -3,7 +3,7 @@
 // csharp: hina/bytespacecomparer.cs [snipped]
 namespace Hina
 {
-    static class UnixDateTime
+    public static class UnixDateTime
     {
         public static readonly DateTime Epoch = DateTimeEx.CreateUtc(1970);
 
@@ -12,5 +12,7 @@ namespace Hina
 
         public static DateTime FromUnixMilliseconds(long seconds) => Epoch.AddMilliseconds(seconds);
         public static long     ToUnixMilliseconds(DateTime date)  => (long)(date - Epoch).TotalMilliseconds;
+
+        public static long Now => ToUnix(DateTime.Now);
     }
 }
