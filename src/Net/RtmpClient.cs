@@ -236,6 +236,9 @@ namespace RtmpSharp.Net
             public int                  ChunkLength = 4192;
             public SerializationContext Context;
 
+            public string               ClientPlatform = "WIN";
+            public Version              ClientVersion = new Version(21, 0, 0, 174);
+
             // the below fields are optional, and may be null
             public string AppName;
             public string PageUrl;
@@ -246,6 +249,8 @@ namespace RtmpSharp.Net
             public IClientDelegate ClientDelegate;
 
             public RemoteCertificateValidationCallback Validate;
+
+            public string FlashVersion => $"{ClientPlatform} {ClientVersion.ToString().Replace(".", ",")}";
         }
 
         public static async Task<RtmpClient> ConnectAsync(Options options)
@@ -281,8 +286,8 @@ namespace RtmpSharp.Net
                 pageUrl:   options.PageUrl,
                 swfUrl:    options.SwfUrl,
                 tcUrl:     uri.ToString(),
+                flashVer: options.FlashVersion,
                 arguments: options.Arguments);
-
 
             return client;
         }
@@ -310,7 +315,7 @@ namespace RtmpSharp.Net
         }
 
         // attempts to perform an rtmp connect, and returns the client id assigned to us (if any - this may be null)
-        static async Task<string> RtmpConnectAsync(RtmpClient client, string appName, string pageUrl, string swfUrl, string tcUrl, object[] arguments)
+        static async Task<string> RtmpConnectAsync(RtmpClient client, string appName, string pageUrl, string swfUrl, string tcUrl, string flashVer, object[] arguments)
         {
             var request = new InvokeAmf0
             {
@@ -322,7 +327,7 @@ namespace RtmpSharp.Net
                     { "app",            appName          },
                     { "audioCodecs",    3575             },
                     { "capabilities",   239              },
-                    { "flashVer",       "WIN 21,0,0,174" },
+                    { "flashVer",       flashVer         },
                     { "fpad",           false            },
                     { "objectEncoding", (double)3        }, // currently hard-coded to amf3
                     { "pageUrl",        pageUrl          },
