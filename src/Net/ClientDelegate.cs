@@ -12,23 +12,25 @@ namespace RtmpSharp.Net
 
     public static class ClientDelegate
     {
-        public static IClientDelegate UseReflection(object clientDelegate, bool ignoreCase = true)
+        public static IClientDelegate UseReflection(object clientDelegate, bool ignoreCase = true, string tag = null)
         {
             if (clientDelegate == null)
                 throw new System.ArgumentNullException(nameof(clientDelegate));
 
-            return new ReflectionDelegate(clientDelegate, ignoreCase);
+            return new ReflectionDelegate(clientDelegate, ignoreCase, tag);
         }
 
         class ReflectionDelegate : IClientDelegate
         {
             readonly object clientDelegate;
             readonly StringComparison comparison;
+            readonly string tag;
 
-            public ReflectionDelegate(object clientDelegate, bool ignoreCase)
+            public ReflectionDelegate(object clientDelegate, bool ignoreCase, string tag)
             {
                 this.clientDelegate = clientDelegate;
                 this.comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                this.tag = tag;
             }
 
             bool CanUseParameter(ParameterInfo parameter, object value, bool specified)
@@ -36,11 +38,13 @@ namespace RtmpSharp.Net
                 if (parameter.IsOut)
                     return false;
 
-                if (!specified) {
+                if (!specified)
+                {
                     return parameter.IsOptional;
                 }
 
-                if (value == null) {
+                if (value == null)
+                {
                     return parameter.ParameterType.IsByRef || Nullable.GetUnderlyingType(parameter.ParameterType) != null;
                 }
 
@@ -49,20 +53,21 @@ namespace RtmpSharp.Net
 
             public void Invoke(string method, object[] args)
             {
-                var clientMethod =(
+                var clientMethod = (
                         from m in clientDelegate.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                         where string.Equals(m.Name, method, comparison)
                         let mP = m.GetParameters()
                         where mP.Length >= args.Length
                         orderby mP.Length
-                        where mP.Select((p, i) => CanUseParameter(p, i >= args.Length? null : args[i], i < args.Length)).All(v => v)
-                        select (Nullable<(MethodInfo method, ParameterInfo[] parameters)>) (m, mP)
+                        where mP.Select((p, i) => CanUseParameter(p, i >= args.Length ? null : args[i], i < args.Length)).All(v => v)
+                        select ((MethodInfo method, ParameterInfo[] parameters)?)(m, mP)
                     ).FirstOrDefault();
 
                 if (clientMethod == null)
                 {
                     var argTypes = args.Select(arg => arg == null ? typeof(object) : arg.GetType()).ToArray();
-                    Kon.DebugWarn($"Public method not found at ClientDelegate: {method} ({string.Join(", ", argTypes.Select(t => t.Name))})");
+                    var tagPrefix = tag == null && clientDelegate == null ? "" : tag == null ? $"[{clientDelegate.GetType().Name}]" : $"[{clientDelegate.GetType().Name}: {tag}] ";
+                    Kon.DebugWarn($"{tagPrefix}Method not found at ClientDelegate: {method} ({string.Join(", ", argTypes.Select(t => t.Name))})");
                     return;
                 }
 
@@ -70,7 +75,8 @@ namespace RtmpSharp.Net
                 {
                     var best = clientMethod.Value;
                     var mParams = best.parameters;
-                    if (mParams.Length > args.Length) {
+                    if (mParams.Length > args.Length)
+                    {
                         args = args.Concat(mParams.Skip(args.Length).Select(p => p.DefaultValue)).ToArray();
                     }
                     best.method.Invoke(clientDelegate, args);
