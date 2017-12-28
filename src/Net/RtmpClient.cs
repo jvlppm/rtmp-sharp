@@ -169,7 +169,12 @@ namespace RtmpSharp.Net
                                 }
                                 else
                                 {
-                                    synchronizationContext.Post(s => ClientDelegate.Invoke(i.MethodName, i.Arguments), null);
+                                    if (synchronizationContext == null) {
+                                        ClientDelegate.Invoke(i.MethodName, i.Arguments);
+                                    }
+                                    else {
+                                        synchronizationContext.Post(s => ClientDelegate.Invoke(i.MethodName, i.Arguments), null);
+                                    }
                                 }
                             }
                             break;
