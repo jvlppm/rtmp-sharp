@@ -51,6 +51,17 @@ namespace RtmpSharp.Net.Messages
             }
         }
 
+		public class DeleteDataEvent : Event
+		{
+			public readonly string Name;
+
+			public DeleteDataEvent(string name)
+				: base(EventType.DeleteData)
+			{
+				Name = name;
+			}
+		}
+
         public class ClearDataEvent : Event {
             public ClearDataEvent() : base(EventType.ClearData) { }
         }

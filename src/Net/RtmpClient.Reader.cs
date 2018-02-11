@@ -373,6 +373,11 @@ namespace RtmpSharp.Net
                                 value: r.ReadAmf0Object()));
                             break;
 
+						case SharedObjectMessage.EventType.DeleteData:
+							message.Events.Add(new SharedObjectMessage.DeleteDataEvent(
+								name: r.ReadUtf()));
+							break;
+
                         case SharedObjectMessage.EventType.SendMessage:
                             var dataName = (string)r.ReadAmf0Object();
                             List<object> parameters = new List<object>();

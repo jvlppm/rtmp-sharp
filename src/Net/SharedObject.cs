@@ -85,6 +85,11 @@ namespace RtmpSharp.Net
                         this.data.FirePropertyChanged(data.Name);
                         break;
 
+					case SharedObjectMessage.DeleteDataEvent data:
+						this.data.Properties.Remove(data.Name);
+						this.data.FirePropertyChanged(data.Name);
+						break;
+
                     case SharedObjectMessage.SendMessageEvent message:
                         ClientDelegate?.Invoke(message.Name, message.Parameters);
                         break;
