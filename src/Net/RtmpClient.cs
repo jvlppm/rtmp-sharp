@@ -55,6 +55,8 @@ namespace RtmpSharp.Net
         // a tuple describing the cause of the disconnection. either value may be null.
         (string message, Exception inner) cause;
 
+        readonly IDictionary<int, Channel> OpenChannels = new Dictionary<int, Channel>();
+
 
         RtmpClient(SerializationContext context)
         {
@@ -89,7 +91,7 @@ namespace RtmpSharp.Net
 
         // this method will never throw an exception unless that exception will be fatal to this connection, and thus
         // the connection would be forced to close.
-        void InternalReceiveEvent(RtmpMessage message)
+        void InternalReceiveEvent(RtmpMessage message, int channelId)
         {
             switch (message)
             {
@@ -101,6 +103,10 @@ namespace RtmpSharp.Net
                     SharedObject shared;
                     if (SharedObject.TryGetByName(s.Name, out shared))
                         shared.InternalSync(s);
+                    break;
+
+                case NotifyMessage n when channelId == 0:
+                    ClientDelegate?.Invoke(n.Message, new[] { n.Parameter });
                     break;
 
                 case Invoke i:
@@ -145,6 +151,7 @@ namespace RtmpSharp.Net
                             break;
 
                         case "onstatus":
+                        case "onStatus":
                             Kon.Trace("received status");
                             break;
 
@@ -160,26 +167,34 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
-                            if (ClientDelegate != null)
+                            IClientDelegate handler = ClientDelegate;
+                            if (handler != null)
                             {
                                 var synchronizationContext = SynchronizationContext.Current;
                                 if (context == null)
                                 {
-                                    ClientDelegate.Invoke(i.MethodName, i.Arguments);
+                                    handler.Invoke(i.MethodName, i.Arguments);
                                 }
                                 else
                                 {
                                     if (synchronizationContext == null) {
-                                        ClientDelegate.Invoke(i.MethodName, i.Arguments);
+                                        handler.Invoke(i.MethodName, i.Arguments);
                                     }
                                     else {
-                                        synchronizationContext.Post(s => ClientDelegate.Invoke(i.MethodName, i.Arguments), null);
+                                        synchronizationContext.Post(s => handler.Invoke(i.MethodName, i.Arguments), null);
                                     }
                                 }
                             }
                             break;
                     }
 
+                    break;
+                default:
+                    Channel channel;
+                    if (OpenChannels.TryGetValue(channelId, out channel))
+                    {
+                        channel.InternalReceiveMessage(message);
+                    }
                     break;
             }
         }
@@ -189,11 +204,11 @@ namespace RtmpSharp.Net
 
         #region internal helper methods
 
-        uint NextInvokeId() => (uint)Interlocked.Increment(ref invokeId);
+        internal uint NextInvokeId() => (uint)Interlocked.Increment(ref invokeId);
         ClientDisconnectedException DisconnectedException() => new ClientDisconnectedException(cause.message, cause.inner);
 
         // calls a remote endpoint, sent along the specified chunk stream id, on message stream id #0
-        Task<object> InternalCallAsync(Invoke request, int chunkStreamId)
+        internal Task<object> InternalCallAsync(Invoke request, int chunkStreamId)
         {
             if (disconnected) throw DisconnectedException();
 
@@ -403,6 +418,27 @@ namespace RtmpSharp.Net
         {
             Check.NotNull(name);
             return SharedObject.GetRemote(this, name, persistent);
+        }
+
+        public async Task<NetStream> CreateStreamAsync()
+        {
+            var streamId = await InvokeAsync<int>("createStream");
+            var channelId = streamId * 5 + 4;
+            var data = GetOrCreateChannel(channelId + 0);
+            var video = GetOrCreateChannel(channelId + 1);
+            var audio = GetOrCreateChannel(channelId + 2);
+            return new NetStream(this, streamId, data, video, audio);
+        }
+
+        Channel GetOrCreateChannel(int id)
+        {
+            Channel stream;
+            if (!OpenChannels.TryGetValue(id, out stream))
+            {
+                stream = new Channel(this, id);
+                OpenChannels[id] = stream;
+            }
+            return stream;
         }
 
         public async Task<bool> SubscribeAsync(string endpoint, string destination, string subtopic, string clientId)

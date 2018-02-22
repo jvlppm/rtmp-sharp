@@ -210,14 +210,14 @@ namespace RtmpSharp.Net
                         dereader.Rebind(builder.Span);
 
                         var message = Deserialize(next.ContentType, dereader);
-                        DispatchMessage(message);
+                        DispatchMessage(message, streamId);
                     }
                 }
 
                 return true;
             }
 
-            void DispatchMessage(RtmpMessage message)
+            void DispatchMessage(RtmpMessage message, int streamId)
             {
                 switch (message)
                 {
@@ -254,7 +254,7 @@ namespace RtmpSharp.Net
                         break;
 
                     default:
-                        owner.InternalReceiveEvent(message);
+                        owner.InternalReceiveEvent(message, streamId);
                         break;
                 }
             }
@@ -314,7 +314,9 @@ namespace RtmpSharp.Net
                             r.ReadBytes(r.Remaining));
 
                     case PacketContentType.DataAmf0:
-                        throw NotSupportedException("data-amf0");
+                        var action = (string)r.ReadAmf0Object();
+                        var data = r.ReadAmf0Object();
+                        return new NotifyMessage(action, data);
 
                     case PacketContentType.SharedObjectAmf0:
                         return ReadSharedObject(ObjectEncoding.Amf0, r);
@@ -373,10 +375,10 @@ namespace RtmpSharp.Net
                                 value: r.ReadAmf0Object()));
                             break;
 
-						case SharedObjectMessage.EventType.DeleteData:
-							message.Events.Add(new SharedObjectMessage.DeleteDataEvent(
-								name: r.ReadUtf()));
-							break;
+                        case SharedObjectMessage.EventType.DeleteData:
+                            message.Events.Add(new SharedObjectMessage.DeleteDataEvent(
+                                name: r.ReadUtf()));
+                            break;
 
                         case SharedObjectMessage.EventType.SendMessage:
                             var dataName = (string)r.ReadAmf0Object();

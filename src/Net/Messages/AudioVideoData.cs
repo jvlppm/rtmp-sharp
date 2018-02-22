@@ -8,6 +8,18 @@
             => Data = data;
     }
 
+    class NotifyMessage : RtmpMessage
+    {
+        public readonly string Message;
+        public readonly object Parameter;
+
+        public NotifyMessage(string message, object parameter) : base(PacketContentType.DataAmf0)
+        {
+            Message = message;
+            Parameter = parameter;
+        }
+    }
+
     class AudioData : ByteData
     {
         public AudioData(byte[] data) : base(data, PacketContentType.Audio) { }
