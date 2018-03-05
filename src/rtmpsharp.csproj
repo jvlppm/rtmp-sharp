@@ -13,30 +13,23 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CSharp"                    Version="4.4.0" />
-    <PackageReference Include="System.Buffers"                      Version="4.4.0" />
-    <PackageReference Include="System.Collections"                  Version="4.3.0" />
-    <PackageReference Include="System.Collections.Concurrent"       Version="4.3.0" />
-    <PackageReference Include="System.ComponentModel.TypeConverter" Version="4.3.0" />
-    <PackageReference Include="System.Console"                      Version="4.3.0" />
-    <PackageReference Include="System.Diagnostics.Debug"            Version="4.3.0" />
-    <PackageReference Include="System.Dynamic.Runtime"              Version="4.3.0" />
-    <PackageReference Include="System.IO"                           Version="4.3.0" />
-    <PackageReference Include="System.IO.Compression"               Version="4.3.0" />
-    <PackageReference Include="System.Linq"                         Version="4.3.0" />
-    <PackageReference Include="System.Linq.Expressions"             Version="4.3.0" />
-    <PackageReference Include="System.Net.Security"                 Version="4.3.2" />
-    <PackageReference Include="System.Net.Sockets"                  Version="4.3.0" />
-    <PackageReference Include="System.Reflection"                   Version="4.3.0" />
-    <PackageReference Include="System.Reflection.Extensions"        Version="4.3.0" />
-    <PackageReference Include="System.Reflection.TypeExtensions"    Version="4.4.0" />
-    <PackageReference Include="System.Runtime"                      Version="4.3.0" />
-    <PackageReference Include="System.Runtime.Extensions"           Version="4.3.0" />
-    <PackageReference Include="System.Text.RegularExpressions"      Version="4.3.0" />
-    <PackageReference Include="System.Threading"                    Version="4.3.0" />
-    <PackageReference Include="System.Threading.Tasks"              Version="4.3.0" />
-    <PackageReference Include="System.ValueTuple"                   Version="4.4.0" />
-    <PackageReference Include="System.Xml.XDocument"                Version="4.3.0" />
+    <PackageReference Include="System.Collections" Version="4.3.0" />
+    <PackageReference Include="System.Collections.Concurrent" Version="4.3.0" />
+    <PackageReference Include="System.Console" Version="4.3.0" />
+    <PackageReference Include="System.Diagnostics.Debug" Version="4.3.0" />
+    <PackageReference Include="System.Dynamic.Runtime" Version="4.3.0" />
+    <PackageReference Include="System.IO" Version="4.3.0" />
+    <PackageReference Include="System.IO.Compression" Version="4.3.0" />
+    <PackageReference Include="System.Linq" Version="4.3.0" />
+    <PackageReference Include="System.Linq.Expressions" Version="4.3.0" />
+    <PackageReference Include="System.Net.Sockets" Version="4.3.0" />
+    <PackageReference Include="System.Reflection.TypeExtensions" Version="4.4.0" />
+    <PackageReference Include="System.Runtime" Version="4.3.0" />
+    <PackageReference Include="System.Runtime.Extensions" Version="4.3.0" />
+    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.0" />
+    <PackageReference Include="System.Threading" Version="4.3.0" />
+    <PackageReference Include="System.Threading.Tasks" Version="4.3.0" />
+    <PackageReference Include="System.Xml.XDocument" Version="4.3.0" />
     <PackageReference Include="System.Runtime.InteropServices.RuntimeInformation" Version="4.3.0" />
   </ItemGroup>
 
@@ -53,5 +46,13 @@
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <DefineConstants>$(DefineConstants);RELEASE</DefineConstants>
     <Optimize>true</Optimize>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoStdLib>false</NoStdLib>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoStdLib>false</NoStdLib>
   </PropertyGroup>
 </Project>

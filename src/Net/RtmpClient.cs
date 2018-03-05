@@ -15,7 +15,6 @@ using Konseki;
 using RtmpSharp.Messaging;
 using RtmpSharp.Messaging.Messages;
 using RtmpSharp.Net.Messages;
-using System.Reflection;
 
 namespace RtmpSharp.Net
 {
@@ -86,7 +85,7 @@ namespace RtmpSharp.Net
             source.Cancel();
             callbacks.SetExceptionForAll(DisconnectedException());
 
-            WrapCallback(() => Disconnected?.Invoke(this, DisconnectedException()));
+			WrapCallback(() => Disconnected?.Invoke(this, DisconnectedException()));
         }
 
         // this method will never throw an exception unless that exception will be fatal to this connection, and thus
@@ -115,6 +114,13 @@ namespace RtmpSharp.Net
                     switch (i.MethodName)
                     {
                         case "_result":
+							if (param is IDictionary<string, object> resultObj &&
+							    resultObj.ContainsKey("code") &&
+							    //resultObj.ContainsKey("description") && 
+							    //resultObj.TryGetValue("code", out var resultCode) && resultCode is "NetConnection.Connect.Rejected" &&
+							    resultObj.TryGetValue("level", out var resultLevel) && resultLevel is "error")
+								goto case "_error";
+
                             // unwrap the flex wrapper object if it is present
                             var a = param as AcknowledgeMessage;
                             callbacks.SetResult(i.InvokeId, a?.Body ?? param);
@@ -126,13 +132,19 @@ namespace RtmpSharp.Net
                                 case string str:
                                     callbacks.SetException(i.InvokeId, new Exception(str));
                                     break;
-                                case AsObject obj:
-                                    callbacks.SetException(i.InvokeId, new InvocationException() {
-                                        FaultCode = obj.TryGetValue("code", out var code) && code != null? code.ToString() : null,
-                                        FaultString = obj.TryGetValue("description", out var desc) && desc != null? desc.ToString() : null,
-                                        RootCause = obj.TryGetValue("application", out var app) && app != null? app.ToString() : null,
-                                        ExtendedData = obj,
-                                    });
+								case IDictionary<string, object> obj:
+									var error = new InvocationException() {
+										FaultCode = obj.TryGetValue("code", out var code) && code != null? code.ToString() : null,
+										FaultString = obj.TryGetValue("description", out var desc) && desc != null? desc.ToString() : null,
+										RootCause = obj.TryGetValue("application", out var app) && app != null? app.ToString() : null,
+										ExtendedData = obj
+									};
+									
+									if (obj.TryGetValue("code", out var errorCode) && errorCode is "NetConnection.Connect.Rejected")
+										InternalCloseConnection((string)obj["description"], error);
+									else {
+                                		callbacks.SetException(i.InvokeId, error);
+									}
                                     break;
 
                                 case ErrorMessage b:
@@ -152,7 +164,15 @@ namespace RtmpSharp.Net
 
                         case "onstatus":
                         case "onStatus":
-                            Kon.Trace("received status");
+							switch (param)
+							{
+								case IDictionary<string, object> o:
+									Console.WriteLine($"received status: {{\n{string.Join(",\n", o.Select(kv => $"  \"{kv.Key}\": \"{kv.Value}\""))}\n}}");
+									break;
+								default:
+									Kon.Trace("received status");
+									break;
+							}
                             break;
 
                         // [2016-12-26] workaround roslyn compiler bug that would cause the following default cause to
@@ -167,24 +187,7 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
-                            IClientDelegate handler = ClientDelegate;
-                            if (handler != null)
-                            {
-                                var synchronizationContext = SynchronizationContext.Current;
-                                if (context == null)
-                                {
-                                    handler.Invoke(i.MethodName, i.Arguments);
-                                }
-                                else
-                                {
-                                    if (synchronizationContext == null) {
-                                        handler.Invoke(i.MethodName, i.Arguments);
-                                    }
-                                    else {
-                                        synchronizationContext.Post(s => handler.Invoke(i.MethodName, i.Arguments), null);
-                                    }
-                                }
-                            }
+							ClientDelegate?.Invoke(i.MethodName, i.Arguments);
                             break;
                     }
 
@@ -256,9 +259,6 @@ namespace RtmpSharp.Net
             public int                  ChunkLength = 4192;
             public SerializationContext Context;
 
-            public string               ClientPlatform = "WIN";
-            public Version              ClientVersion = new Version(21, 0, 0, 174);
-
             // the below fields are optional, and may be null
             public string AppName;
             public string PageUrl;
@@ -270,7 +270,7 @@ namespace RtmpSharp.Net
 
             public RemoteCertificateValidationCallback Validate;
 
-            public string FlashVersion => $"{ClientPlatform} {ClientVersion.ToString().Replace(".", ",")}";
+            public string FlashVersion = "WIN 21,0,0,174";
         }
 
         public static async Task<RtmpClient> ConnectAsync(Options options)
@@ -345,7 +345,7 @@ namespace RtmpSharp.Net
                 Headers    = new AsObject()
                 {
                     { "app",            appName          },
-                    { "audioCodecs",    3575             },
+					{ "audioCodecs",    0x0004           },
                     { "capabilities",   239              },
                     { "flashVer",       flashVer         },
                     { "fpad",           false            },
@@ -423,12 +423,18 @@ namespace RtmpSharp.Net
         public async Task<NetStream> CreateStreamAsync()
         {
             var streamId = await InvokeAsync<int>("createStream");
-            var channelId = streamId * 5 + 4;
-            var data = GetOrCreateChannel(channelId + 0);
-            var video = GetOrCreateChannel(channelId + 1);
-            var audio = GetOrCreateChannel(channelId + 2);
+			var data = GetOrCreateChannel(streamId * 5 + 4);
+			var video = GetOrCreateChannel(streamId * 5 + 5);
+			var audio = GetOrCreateChannel(streamId * 5 + 6);
             return new NetStream(this, streamId, data, video, audio);
         }
+
+		internal void DeleteStream(NetStream stream)
+		{
+			OpenChannels.Remove(stream.StreamId * 5 + 4);
+			OpenChannels.Remove(stream.StreamId * 5 + 5);
+			OpenChannels.Remove(stream.StreamId * 5 + 6);
+		}
 
         Channel GetOrCreateChannel(int id)
         {
