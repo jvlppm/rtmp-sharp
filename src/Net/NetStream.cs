@@ -170,8 +170,7 @@ namespace RtmpSharp.Net
 
         public async Task Play(string videoId)
         {
-            client.RegisteringStream = this;
-            await InvokeAsync<object>(data.ChannelId, "play", videoId);
+            await client.InitializeStreamAsync(this, () => InvokeAsync<object>(data.ChannelId, "play", videoId));
         }
 
 		public async Task Pause(bool paused)

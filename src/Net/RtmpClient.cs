@@ -88,7 +88,22 @@ namespace RtmpSharp.Net
 			WrapCallback(() => Disconnected?.Invoke(this, DisconnectedException()));
         }
 
-        internal NetStream RegisteringStream;
+        TaskCompletionSource<int> currentStreamInitialization;
+        Task streamInitialization = Task.CompletedTask;
+
+        internal Task InitializeStreamAsync(NetStream netStream, Func<Task<object>> p)
+        {
+            return streamInitialization = streamInitialization.ContinueWith(t => DoInitializeStreamAsync(netStream, p)).Unwrap();
+        }
+
+        async Task DoInitializeStreamAsync(NetStream netStream, Func<Task<object>> p)
+        {
+            currentStreamInitialization = new TaskCompletionSource<int>();
+            await p();
+            var serverStreamId = await currentStreamInitialization.Task;
+            RegisterStream(netStream, serverStreamId);
+        }
+
 
         // this method will never throw an exception unless that exception will be fatal to this connection, and thus
         // the connection would be forced to close.
@@ -100,8 +115,8 @@ namespace RtmpSharp.Net
                     queue(new UserControlMessage(UserControlMessage.Type.PingResponse, u.Values), 2);
                     break;
 
-                case UserControlMessage u when u.EventType == UserControlMessage.Type.StreamBegin && channelId == 2 && RegisteringStream != null:
-                    RegisterStream(RegisteringStream, (int)u.Values[0]);
+                case UserControlMessage u when u.EventType == UserControlMessage.Type.StreamBegin && channelId == 2 && currentStreamInitialization != null:
+                    currentStreamInitialization.TrySetResult((int)u.Values[0]);
                     break;
 
                 case SharedObjectMessage s:
