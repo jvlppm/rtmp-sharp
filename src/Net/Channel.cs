@@ -10,6 +10,8 @@ namespace RtmpSharp.Net
         public readonly int ChannelId;
         readonly RtmpClient client;
 
+        internal int ServerChannelId;
+
         public Channel(RtmpClient client, int channelId)
         {
             ChannelId = channelId;

@@ -15,6 +15,7 @@ using Konseki;
 using RtmpSharp.Messaging;
 using RtmpSharp.Messaging.Messages;
 using RtmpSharp.Net.Messages;
+using System.Xml.Linq;
 
 namespace RtmpSharp.Net
 {
@@ -56,7 +57,6 @@ namespace RtmpSharp.Net
 
         readonly IDictionary<int, Channel> OpenChannels = new Dictionary<int, Channel>();
 
-
         RtmpClient(SerializationContext context)
         {
             this.context   = context;
@@ -88,6 +88,8 @@ namespace RtmpSharp.Net
 			WrapCallback(() => Disconnected?.Invoke(this, DisconnectedException()));
         }
 
+        internal NetStream RegisteringStream;
+
         // this method will never throw an exception unless that exception will be fatal to this connection, and thus
         // the connection would be forced to close.
         void InternalReceiveEvent(RtmpMessage message, int channelId)
@@ -96,6 +98,10 @@ namespace RtmpSharp.Net
             {
                 case UserControlMessage u when u.EventType == UserControlMessage.Type.PingRequest:
                     queue(new UserControlMessage(UserControlMessage.Type.PingResponse, u.Values), 2);
+                    break;
+
+                case UserControlMessage u when u.EventType == UserControlMessage.Type.StreamBegin && channelId == 2 && RegisteringStream != null:
+                    RegisterStream(RegisteringStream, (int)u.Values[0]);
                     break;
 
                 case SharedObjectMessage s:
@@ -197,6 +203,9 @@ namespace RtmpSharp.Net
                     if (OpenChannels.TryGetValue(channelId, out channel))
                     {
                         channel.InternalReceiveMessage(message);
+                    }
+                    else {
+                        Console.WriteLine($"Received message on unknown channel: {channelId} - {message}");
                     }
                     break;
             }
@@ -423,27 +432,40 @@ namespace RtmpSharp.Net
         public async Task<NetStream> CreateStreamAsync()
         {
             var streamId = await InvokeAsync<int>("createStream");
-			var data = GetOrCreateChannel(streamId * 5 + 4);
-			var video = GetOrCreateChannel(streamId * 5 + 5);
-			var audio = GetOrCreateChannel(streamId * 5 + 6);
+            var data = new Channel(this, streamId * 5 + 4);
+            var video = new Channel(this, streamId * 5 + 5);
+            var audio = new Channel(this, streamId * 5 + 6);
+
             return new NetStream(this, streamId, data, video, audio);
+        }
+
+        void RegisterStream(NetStream stream, int streamId)
+        {
+            stream.ServerStreamId = streamId;
+            stream.data.ServerChannelId = streamId * 5 - 1;
+            stream.video.ServerChannelId = streamId * 5;
+            stream.audio.ServerChannelId = streamId * 5 + 1;
+
+            OpenChannels[stream.data.ServerChannelId] = stream.data;
+            OpenChannels[stream.video.ServerChannelId] = stream.video;
+            OpenChannels[stream.audio.ServerChannelId] = stream.audio;
         }
 
 		internal void DeleteStream(NetStream stream)
 		{
-			OpenChannels.Remove(stream.StreamId * 5 + 4);
-			OpenChannels.Remove(stream.StreamId * 5 + 5);
-			OpenChannels.Remove(stream.StreamId * 5 + 6);
+            if (stream.ServerStreamId != 0)
+            {
+                OpenChannels.Remove(stream.audio.ServerChannelId);
+                OpenChannels.Remove(stream.video.ServerChannelId);
+                OpenChannels.Remove(stream.audio.ServerChannelId);
+            }
 		}
 
-        Channel GetOrCreateChannel(int id)
+        Channel CreateChannel(int id)
         {
-            Channel stream;
-            if (!OpenChannels.TryGetValue(id, out stream))
-            {
-                stream = new Channel(this, id);
-                OpenChannels[id] = stream;
-            }
+            var stream = new Channel(this, id);
+            OpenChannels[id] = stream;
+
             return stream;
         }
 

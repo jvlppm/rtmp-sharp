@@ -3,6 +3,7 @@ using RtmpSharp.Net.Messages;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Hina.Threading;
 
 namespace RtmpSharp.Net
 {
@@ -29,10 +30,9 @@ namespace RtmpSharp.Net
 			0, // timestamp-ex
 			0, 0, 0, // streamId - always 0
 		};
+        readonly byte[] lastTagSizeBuffer = { 0, 0, 0, 0 };
 
-		byte[] lastTagSizeBuffer = { 0, 0, 0, 0 };
-
-		public IDisposable WatchAsFlv(Action<byte[]> onDataReceived, Func<TimeSpan?> currentTime = null)
+		public IDisposable WatchAsFlv(Action<object, byte[]> onDataReceived, Func<TimeSpan?> currentTime = null, bool hasAudio = false, bool hasVideo = false)
 		{
 			if (onDataReceived == null) throw new ArgumentNullException(nameof(onDataReceived));
 			if ( CleanupFlvHandlers.ContainsKey(onDataReceived)) throw new InvalidOperationException("Handler already registered");
@@ -42,8 +42,8 @@ namespace RtmpSharp.Net
 
 			int lastTagSize = 0;
 
-			//flvHeader[4] = hasAudio? 4 : 0 | hasVideo? 1 : 0;
-			onDataReceived(flvHeader);
+            //flvHeader[4] = (byte)((hasAudio? 4 : 0) | (hasVideo? 1 : 0));
+			onDataReceived(this, flvHeader);
 
 			AudioDataReceived += Handle_AudioData;
 			VideoDataReceived += Handle_VideoData;
@@ -58,7 +58,7 @@ namespace RtmpSharp.Net
 
 			void WriteFLVTag(byte type, byte[] e)
 			{
-				lock (sync)
+                lock (sync)
 				{
 					var extraFrameTimestamp = currentTime?.Invoke();
 					
@@ -78,9 +78,9 @@ namespace RtmpSharp.Net
 					flvTagHeader[6] = (byte)(ts >> 0);
 					flvTagHeader[7] = (byte)(ts >> 24);
 
-					onDataReceived(lastTagSizeBuffer);
-					onDataReceived(flvTagHeader);
-					onDataReceived(e);
+					onDataReceived(this, lastTagSizeBuffer);
+					onDataReceived(this, flvTagHeader);
+					onDataReceived(this, e);
 
 					lastTagSize = flvTagHeader.Length + e.Length;
 
@@ -88,12 +88,12 @@ namespace RtmpSharp.Net
 				}
 			}
 			return new OnDispose(delegate {
-				Action cleanup;
-				if (CleanupFlvHandlers.TryGetValue(onDataReceived, out cleanup) && cleanup != null) {
-					cleanup();
-					CleanupFlvHandlers.Remove(onDataReceived);
-				}
-			});
+                if (CleanupFlvHandlers.TryGetValue(onDataReceived, out Action cleanup) && cleanup != null)
+                {
+                    cleanup();
+                    CleanupFlvHandlers.Remove(onDataReceived);
+                }
+            });
 		}
 
 		class OnDispose : IDisposable
@@ -144,14 +144,15 @@ namespace RtmpSharp.Net
         event Action<byte[]> AudioDataReceived;
         event Action<byte[]> VideoDataReceived;
 
-		readonly Dictionary<Action<byte[]>, Action> CleanupFlvHandlers = new Dictionary<Action<byte[]>, Action>();
+		readonly Dictionary<Action<object, byte[]>, Action> CleanupFlvHandlers = new Dictionary<Action<object, byte[]>, Action>();
 
         public readonly int StreamId;
         readonly RtmpClient client;
-        readonly Channel data;
-        readonly Channel audio;
-        readonly Channel video;
+        public readonly Channel data;
+        public readonly Channel audio;
+        public readonly Channel video;
 
+        internal int ServerStreamId;
 		bool disposed;
 
         internal NetStream(RtmpClient client, int streamId, Channel data, Channel video, Channel audio)
@@ -167,27 +168,28 @@ namespace RtmpSharp.Net
             this.video.MessageReceived += Data_MessageReceived;
         }
 
-        public async Task<object> Play(string videoId)
+        public async Task Play(string videoId)
         {
-            var res = await InvokeAsync<object>("play", videoId);
-            return res;
+            client.RegisteringStream = this;
+            await InvokeAsync<object>(data.ChannelId, "play", videoId);
         }
 
 		public async Task Pause(bool paused)
 		{
-			var res = await InvokeAsync<object>("pause", paused, 0);
+            var res = await InvokeAsync<object>(data.ChannelId, "pause", paused, 0);
 		}
 
 		public async Task Delete()
 		{
-			await Pause(true);
-			//await InvokeAsync<object>("receiveAudio", false);
-			//await InvokeAsync<object>("receiveVideo", false);
-			//client.DeleteStream(this);
-			//disposed = true;
+            if (ServerStreamId > 0) {
+    			InvokeAsync<object>((int)ServerStreamId, "closeStream").Forget();
+                await client.InvokeAsync<object>("deleteStream", (int)ServerStreamId);
+                client.DeleteStream(this);
+            }
+			disposed = true;
 		}
 
-        async Task<T> InvokeAsync<T>(string method, params object[] arguments)
+        async Task<T> InvokeAsync<T>(int channelId, string method, params object[] arguments)
         {
 			if (disposed) throw new ObjectDisposedException(nameof(NetStream));
             var command = new InvokeAmf0 {
@@ -195,11 +197,11 @@ namespace RtmpSharp.Net
                 Arguments = arguments,
                 InvokeId = client.NextInvokeId()
             };
-            var result = await client.InternalCallAsync(command, data.ChannelId);
+            var result = await client.InternalCallAsync(command, channelId);
             return NanoTypeConverter.ConvertTo<T>(result);
         }
 
-        void Data_MessageReceived(object sender, RtmpMessage e)
+        internal void Data_MessageReceived(object sender, RtmpMessage e)
         {
             switch (e)
             {
