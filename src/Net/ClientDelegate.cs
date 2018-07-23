@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Konseki;
+using System.Collections.Generic;
+using System.Collections;
 
 namespace RtmpSharp.Net
 {
@@ -67,7 +69,7 @@ namespace RtmpSharp.Net
                 {
                     var argTypes = args.Select(arg => arg == null ? typeof(object) : arg.GetType()).ToArray();
                     var tagPrefix = tag == null && clientDelegate == null ? "" : tag == null ? $"[{clientDelegate.GetType().Name}]" : $"[{clientDelegate.GetType().Name}: {tag}] ";
-                    Kon.DebugWarn($"{tagPrefix}Method not found at ClientDelegate: {method} ({string.Join(", ", argTypes.Select(t => t.Name))})");
+                    Kon.DebugWarn($"{tagPrefix}Method not found at ClientDelegate: {method} ({string.Join(", ", Combine(argTypes, args).Select(t => $"{t.Item1.Name} {t.Item2}"))})");
                     return;
                 }
 
@@ -85,6 +87,15 @@ namespace RtmpSharp.Net
                 {
                     Kon.Error($"Error invoking dynamic method: {clientMethod}", ex);
                 }
+            }
+
+            IEnumerable<(T1,T2)> Combine<T1, T2>(IEnumerable<T1> t1, IEnumerable<T2> t2)
+            {
+                var en1 = t1.GetEnumerator();
+                var en2 = t2.GetEnumerator();
+
+                while (en1.MoveNext() && en2.MoveNext())
+                    yield return (en1.Current, en2.Current);
             }
         }
     }

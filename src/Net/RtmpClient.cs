@@ -16,6 +16,7 @@ using RtmpSharp.Messaging;
 using RtmpSharp.Messaging.Messages;
 using RtmpSharp.Net.Messages;
 using System.Xml.Linq;
+using System.Net.Sockets;
 
 namespace RtmpSharp.Net
 {
@@ -31,6 +32,8 @@ namespace RtmpSharp.Net
         // the cancellation source (and token) that this client internally uses to signal disconnection
         readonly CancellationToken token;
         readonly CancellationTokenSource source;
+
+        readonly TcpClient tcp;
 
         // the serialization context for this rtmp client
         readonly SerializationContext context;
@@ -57,8 +60,9 @@ namespace RtmpSharp.Net
 
         readonly IDictionary<int, Channel> OpenChannels = new Dictionary<int, Channel>();
 
-        RtmpClient(SerializationContext context)
+        RtmpClient(SerializationContext context, TcpClient tcp)
         {
+            this.tcp = tcp;
             this.context   = context;
             this.callbacks = new TaskCallbackManager<uint, object>();
             this.source    = new CancellationTokenSource();
@@ -314,7 +318,7 @@ namespace RtmpSharp.Net
             await Handshake.GoAsync(stream);
 
 
-            var client      = new RtmpClient(context);
+            var client      = new RtmpClient(context, tcp);
             var reader      = new Reader(client, stream, context, client.token);
             var writer      = new Writer(client, stream, context, client.token);
 
@@ -569,13 +573,13 @@ namespace RtmpSharp.Net
         #endregion
 
 
-        public Task CloseAsync(bool forced = false)
+        public Task CloseAsync(string reason = null, Exception inner = null)
         {
             // currently we don't have a notion of gracefully closing a connection. all closes are hard force closes,
             // but we leave the possibility for properly implementing graceful closures in the future
 
-            InternalCloseConnection("close-requested-by-user", null);
-
+            InternalCloseConnection(reason ?? "close-requested-by-user", inner);
+            tcp.Dispose();
             return Task.CompletedTask;
         }
     }
