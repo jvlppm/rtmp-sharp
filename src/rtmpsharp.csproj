@@ -4,7 +4,7 @@
     <Description>a fast and lightweight rtmp(s) client library.</Description>
     <PackageTags>rtmp rtmps amf flex netcore</PackageTags>
 
-    <TargetFramework>netstandard1.5</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ReleaseVersion></ReleaseVersion>
   </PropertyGroup>
