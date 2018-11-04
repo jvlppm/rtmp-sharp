@@ -9,11 +9,11 @@ namespace Hina.Net
     {
         public static async Task<TcpClient> ConnectAsync(string host, int port, bool exclusiveAddressUse = true)
         {
-            try {
+            /*try {
                 return await ConnectTcpDefault(host, port, exclusiveAddressUse);
             }
-            catch (PlatformNotSupportedException) {
-            }
+            catch (Exception) {
+            }*/
 
             return await ConnectTcpCompat(host, port);
         }
