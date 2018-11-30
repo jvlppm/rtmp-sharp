@@ -34,8 +34,19 @@ namespace Hina.Net
 
         static async Task<TcpClient> ConnectTcpCompat(string host, int port)
         {
-            var tcp = new TcpClient();
-            await tcp.ConnectAsync(host, port);
+            TcpClient tcp;
+            try
+            {
+                tcp = new TcpClient(AddressFamily.InterNetworkV6);
+                Console.WriteLine($"Trying to connect to host ipv6: {host}");
+                await tcp.ConnectAsync(host, port);
+            }
+            catch
+            {
+                tcp = new TcpClient();
+                Console.WriteLine($"Trying to connect to host: {host}"); 
+                await tcp.ConnectAsync(host, port);
+            }
             return tcp;
         }
     }
