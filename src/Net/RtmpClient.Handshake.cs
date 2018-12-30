@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Hina;
 using Hina.IO;
@@ -12,16 +13,16 @@ namespace RtmpSharp.Net
     {
         static class Handshake
         {
-            public static async Task GoAsync(Stream stream)
+            public static async Task GoAsync(Stream stream, CancellationToken cancellation = default(CancellationToken))
             {
-                var c1 = await WriteC1Async(stream);
-                var s1 = await ReadS1Async(stream);
+                var c1 = await WriteC1Async(stream, cancellation);
+                var s1 = await ReadS1Async(stream, cancellation);
 
                 if (s1.zero != 0 || s1.three != 3)
                     throw InvalidHandshakeException();
 
-                await WriteC2Async(stream, s1.time, s1.random);
-                var s2 = await ReadS2Async(stream);
+                await WriteC2Async(stream, s1.time, s1.random, cancellation);
+                var s2 = await ReadS2Async(stream, cancellation);
 
                 if (c1.time != s2.echoTime || !ByteSpaceComparer.IsEqual(c1.random, s2.echoRandom))
                     throw InvalidHandshakeException();
@@ -38,7 +39,7 @@ namespace RtmpSharp.Net
 
             static readonly SerializationContext EmptyContext = new SerializationContext();
 
-            static async Task<(uint time, Space<byte> random)> WriteC1Async(Stream stream)
+            static async Task<(uint time, Space<byte> random)> WriteC1Async(Stream stream, CancellationToken cancellation)
             {
                 var writer = new AmfWriter(new byte[C1Length], EmptyContext);
                 var random = RandomEx.GetBytes(RandomLength);
@@ -49,15 +50,15 @@ namespace RtmpSharp.Net
                 writer.WriteUInt32(0);     // zero                      [c1]
                 writer.WriteBytes(random); // random bytes              [c1]
 
-                await stream.WriteAsync(writer.Span);
+                await stream.WriteAsync(writer.Span, cancellation);
                 writer.Return();
 
                 return (time, random);
             }
 
-            static async Task<(uint three, uint time, uint zero, Space<byte> random)> ReadS1Async(Stream stream)
+            static async Task<(uint three, uint time, uint zero, Space<byte> random)> ReadS1Async(Stream stream, CancellationToken cancellation)
             {
-                var buffer = await stream.ReadBytesAsync(C1Length);
+                var buffer = await stream.ReadBytesAsync(C1Length, cancellation);
                 var reader = new AmfReader(buffer, EmptyContext);
 
                 var three  = reader.ReadByte();             // rtmp version (constant 3) [s0]
@@ -68,7 +69,7 @@ namespace RtmpSharp.Net
                 return (three, time, zero, random);
             }
 
-            static async Task WriteC2Async(Stream stream, uint remoteTime, Space<byte> remoteRandom)
+            static async Task WriteC2Async(Stream stream, uint remoteTime, Space<byte> remoteRandom, CancellationToken cancellation)
             {
                 var time = Ts.CurrentTime;
 
@@ -77,13 +78,13 @@ namespace RtmpSharp.Net
                 writer.WriteUInt32(time);        // "time2":       current local time
                 writer.WriteBytes(remoteRandom); // "random echo": a copy of s1 random
 
-                await stream.WriteAsync(writer.Span);
+                await stream.WriteAsync(writer.Span, cancellation);
                 writer.Return();
             }
 
-            static async Task<(uint echoTime, Space<byte> echoRandom)> ReadS2Async(Stream stream)
+            static async Task<(uint echoTime, Space<byte> echoRandom)> ReadS2Async(Stream stream, CancellationToken cancellation)
             {
-                var buffer = await stream.ReadBytesAsync(FrameLength);
+                var buffer = await stream.ReadBytesAsync(FrameLength, cancellation);
                 var reader = new AmfReader(buffer, EmptyContext);
 
                 var time   = reader.ReadUInt32();           // "time":        a copy of c1 time

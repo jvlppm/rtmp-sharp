@@ -37,17 +37,17 @@ namespace Hina.IO
             if (count != 0) throw new EndOfStreamException();
         }
 
-        public static async Task<byte[]> ReadBytesAsync(this Stream stream, int count)
+        public static async Task<byte[]> ReadBytesAsync(this Stream stream, int count, CancellationToken cancellation = default(CancellationToken))
         {
             CheckDebug.NotNull(stream);
 
             var buffer = new byte[count];
-            await stream.ReadBytesAsync(buffer, 0, count);
+            await stream.ReadBytesAsync(buffer, 0, count, cancellation);
 
             return buffer;
         }
 
-        public static async Task ReadBytesAsync(this Stream stream, byte[] buffer, int index, int count)
+        public static async Task ReadBytesAsync(this Stream stream, byte[] buffer, int index, int count, CancellationToken cancellation = default(CancellationToken))
         {
             CheckDebug.NotNull(stream, buffer);
 
@@ -55,7 +55,7 @@ namespace Hina.IO
 
             while (count > 0)
             {
-                var n = await stream.ReadAsync(buffer, read, count);
+                var n = await stream.ReadAsync(buffer, read, count, cancellation);
 
                 if (n == 0)
                     break;
@@ -75,7 +75,7 @@ namespace Hina.IO
         public static Task WriteAsync(this Stream stream, byte[] buffer)
             => stream.WriteAsync(CheckDebug.NotNull(buffer), 0, buffer.Length);
 
-        public static Task WriteAsync(this Stream stream, byte[] buffer, CancellationToken cancellationToken)
-            => stream.WriteAsync(CheckDebug.NotNull(buffer), 0, buffer.Length, cancellationToken);
+        public static Task WriteAsync(this Stream stream, byte[] buffer, CancellationToken cancellation = default(CancellationToken))
+            => stream.WriteAsync(CheckDebug.NotNull(buffer), 0, buffer.Length, cancellation);
     }
 }

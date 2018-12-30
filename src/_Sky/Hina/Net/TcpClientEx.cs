@@ -1,13 +1,15 @@
 ﻿using System;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
+using RtmpSharp._Sky.Hina.Extensions;
 
 // csharp: hina/linq/tcpclientex.cs [snipped]
 namespace Hina.Net
 {
     static class TcpClientEx
     {
-        public static async Task<TcpClient> ConnectAsync(string host, int port, bool exclusiveAddressUse = true)
+        public static async Task<TcpClient> ConnectAsync(string host, int port, bool exclusiveAddressUse = true, AddressFamily? connectionMode = null)
         {
             /*try {
                 return await ConnectTcpDefault(host, port, exclusiveAddressUse);
@@ -15,7 +17,7 @@ namespace Hina.Net
             catch (Exception) {
             }*/
 
-            return await ConnectTcpCompat(host, port);
+            return await ConnectTcpCompat(host, port, connectionMode);
         }
 
         static async Task<TcpClient> ConnectTcpDefault(string host, int port, bool exclusiveAddressUse)
@@ -32,21 +34,10 @@ namespace Hina.Net
             return tcp;
         }
 
-        static async Task<TcpClient> ConnectTcpCompat(string host, int port)
+        static async Task<TcpClient> ConnectTcpCompat(string host, int port, AddressFamily? family)
         {
-            TcpClient tcp;
-            try
-            {
-                tcp = new TcpClient(AddressFamily.InterNetworkV6);
-                Console.WriteLine($"Trying to connect to host ipv6: {host}");
-                await tcp.ConnectAsync(host, port);
-            }
-            catch
-            {
-                tcp = new TcpClient();
-                Console.WriteLine($"Trying to connect to host: {host}"); 
-                await tcp.ConnectAsync(host, port);
-            }
+            var tcp = family == null? new TcpClient() : new TcpClient(family.Value);
+            await tcp.ConnectAsync(host, port);
             return tcp;
         }
     }

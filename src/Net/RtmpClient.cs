@@ -17,6 +17,7 @@ using RtmpSharp.Messaging.Messages;
 using RtmpSharp.Net.Messages;
 using System.Xml.Linq;
 using System.Net.Sockets;
+using RtmpSharp._Sky.Hina.Extensions;
 
 namespace RtmpSharp.Net
 {
@@ -303,6 +304,11 @@ namespace RtmpSharp.Net
 
         public static async Task<RtmpClient> ConnectAsync(Options options)
         {
+            return await ConnectAsync(options, null);
+        }
+
+        public static async Task<RtmpClient> ConnectAsync(Options options, AddressFamily? connectionMode, CancellationToken cancellation = default(CancellationToken))
+        {
             Check.NotNull(options.Url, options.Context);
 
 
@@ -312,10 +318,10 @@ namespace RtmpSharp.Net
             var validate    = options.Validate ?? ((sender, certificate, chain, errors) => true);
 
             var uri         = new Uri(url);
-            var tcp         = await TcpClientEx.ConnectAsync(uri.Host, uri.Port < 0? 1935 : uri.Port);
-            var stream      = await GetStreamAsync(uri, tcp.GetStream(), validate);
+            var tcp         = await TcpClientEx.ConnectAsync(uri.Host, uri.Port < 0? 1935 : uri.Port, connectionMode: connectionMode).WithCancellation(cancellation);
+            var stream      = await GetStreamAsync(uri, tcp.GetStream(), validate).WithCancellation(cancellation);
 
-            await Handshake.GoAsync(stream);
+            await Handshake.GoAsync(stream, cancellation);
 
 
             var client      = new RtmpClient(context, tcp);
