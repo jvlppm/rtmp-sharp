@@ -137,5 +137,11 @@ namespace RtmpSharp.Net
             }
             #endregion
         }
+
+        internal static void SetExceptionForAll(ClientDisconnectedException ex)
+        {
+            foreach (var so in Connected)
+                so.Value.initializeCompletion.TrySetException(ex);
+        }
     }
 }

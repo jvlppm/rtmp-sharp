@@ -83,14 +83,16 @@ namespace RtmpSharp.Net
         // `inner` may be null.
         void InternalCloseConnection(string reason, Exception inner)
         {
+            DisconnectException = new ClientDisconnectedException(reason, inner);
             Volatile.Write(ref cause.message, reason);
             Volatile.Write(ref cause.inner,   inner);
             Volatile.Write(ref disconnected,  true);
 
             source.Cancel();
-            callbacks.SetExceptionForAll(DisconnectedException());
+            SharedObject.SetExceptionForAll(DisconnectException);
+            callbacks.SetExceptionForAll(DisconnectException);
 
-			WrapCallback(() => Disconnected?.Invoke(this, DisconnectedException()));
+			WrapCallback(() => Disconnected?.Invoke(this, DisconnectException));
         }
 
         TaskCompletionSource<int> currentStreamInitialization;
@@ -237,12 +239,12 @@ namespace RtmpSharp.Net
         #region internal helper methods
 
         internal uint NextInvokeId() => (uint)Interlocked.Increment(ref invokeId);
-        ClientDisconnectedException DisconnectedException() => new ClientDisconnectedException(cause.message, cause.inner);
+        public ClientDisconnectedException DisconnectException { get; private set; }
 
         // calls a remote endpoint, sent along the specified chunk stream id, on message stream id #0
         internal Task<object> InternalCallAsync(Invoke request, int chunkStreamId)
         {
-            if (disconnected) throw DisconnectedException();
+            if (disconnected) throw DisconnectException;
 
             var task = callbacks.Create(request.InvokeId);
 
@@ -252,7 +254,7 @@ namespace RtmpSharp.Net
 
         internal Task<object> InternalSendAsync(SharedObjectMessage message)
         {
-            if (disconnected) throw DisconnectedException();
+            if (disconnected) throw DisconnectException;
 
             var task = callbacks.Create(NextInvokeId());
 
@@ -444,12 +446,14 @@ namespace RtmpSharp.Net
 
         public async Task<SharedObject> GetRemoteSharedObjectAsync(string name, bool persistent = false)
         {
+            if (disconnected) throw DisconnectException;
             Check.NotNull(name);
             return await SharedObject.GetRemoteAsync(this, name, persistent);
         }
 
         public SharedObject GetRemoteSharedObject(string name, bool persistent = false)
         {
+            if (disconnected) throw DisconnectException;
             Check.NotNull(name);
             return SharedObject.GetRemote(this, name, persistent);
         }
