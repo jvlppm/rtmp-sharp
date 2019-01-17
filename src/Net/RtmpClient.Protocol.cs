@@ -154,7 +154,7 @@ namespace RtmpSharp.Net
                         return MaybeReadExtraTimestamp(ref next.Timestamp);
 
                     case Type.Type1:
-                        next.Timestamp       = reader.ReadUInt24();
+                        next.Timestamp       = previous.Timestamp + reader.ReadUInt24();
                         next.MessageLength   = (int)reader.ReadUInt24();
                         next.ContentType     = (PacketContentType)reader.ReadByte();
 
@@ -162,7 +162,7 @@ namespace RtmpSharp.Net
                         return MaybeReadExtraTimestamp(ref next.Timestamp);
 
                     case Type.Type2:
-                        next.Timestamp       = reader.ReadUInt24();
+                        next.Timestamp       = previous.Timestamp + reader.ReadUInt24();
 
                         next.MessageLength   = previous.MessageLength;
                         next.ContentType     = previous.ContentType;
