@@ -38,14 +38,16 @@ namespace RtmpSharp.Net
 			if ( CleanupFlvHandlers.ContainsKey(onDataReceived)) throw new InvalidOperationException("Handler already registered");
 
 			object sync = new object();
-			var flvTagTimestamp = new Stopwatch();
 
 			int lastTagSize = 0;
 
-            //flvHeader[4] = (byte)((hasAudio? 4 : 0) | (hasVideo? 1 : 0));
+            flvHeader[4] = (byte)((hasAudio? 4 : 0) | (hasVideo? 1 : 0));
 			onDataReceived(this, flvHeader);
 
-			AudioDataReceived += Handle_AudioData;
+            uint lastTimestampAudio = 0;
+            uint lastTimestampVideo = 0;
+
+            AudioDataReceived += Handle_AudioData;
 			VideoDataReceived += Handle_VideoData;
 
 			CleanupFlvHandlers[onDataReceived] = delegate {
@@ -53,16 +55,19 @@ namespace RtmpSharp.Net
 				VideoDataReceived -= Handle_VideoData;
 			};
 
-			void Handle_AudioData(byte[] e) => WriteFLVTag(8, e);
-			void Handle_VideoData(byte[] e) => WriteFLVTag(9, e);
+			void Handle_AudioData(uint timestamp, byte[] e) => WriteFLVTag(8, timestamp, e, ref lastTimestampAudio);
+			void Handle_VideoData(uint timestamp, byte[] e) => WriteFLVTag(9, timestamp, e, ref lastTimestampVideo);
 
-			void WriteFLVTag(byte type, byte[] e)
+			void WriteFLVTag(byte type, uint ts, byte[] e, ref uint lastTimestampValue)
 			{
+                if (ts < lastTimestampValue)
+                    return;
+
                 lock (sync)
 				{
-					var extraFrameTimestamp = currentTime?.Invoke();
-					
-					lastTagSizeBuffer[0] = (byte)(lastTagSize >> 24);
+                    lastTimestampValue = ts;
+
+                    lastTagSizeBuffer[0] = (byte)(lastTagSize >> 24);
 					lastTagSizeBuffer[1] = (byte)(lastTagSize >> 16);
 					lastTagSizeBuffer[2] = (byte)(lastTagSize >> 8);
 					lastTagSizeBuffer[3] = (byte)(lastTagSize >> 0);
@@ -72,7 +77,6 @@ namespace RtmpSharp.Net
 					flvTagHeader[2] = (byte)(e.Length >> 8);
 					flvTagHeader[3] = (byte)(e.Length >> 0);
 
-					var ts = (long)(extraFrameTimestamp != null && extraFrameTimestamp.Value.TotalSeconds > 1? extraFrameTimestamp.Value.TotalMilliseconds : flvTagTimestamp.ElapsedMilliseconds);
 					flvTagHeader[4] = (byte)(ts >> 16);
 					flvTagHeader[5] = (byte)(ts >> 8);
 					flvTagHeader[6] = (byte)(ts >> 0);
@@ -83,8 +87,6 @@ namespace RtmpSharp.Net
 					onDataReceived(this, e);
 
 					lastTagSize = flvTagHeader.Length + e.Length;
-
-					flvTagTimestamp.Start();
 				}
 			}
 			return new OnDispose(delegate {
@@ -141,8 +143,8 @@ namespace RtmpSharp.Net
 			#endregion
 		}
 
-        event Action<byte[]> AudioDataReceived;
-        event Action<byte[]> VideoDataReceived;
+        event Action<uint, byte[]> AudioDataReceived;
+        event Action<uint, byte[]> VideoDataReceived;
 
 		readonly Dictionary<Action<object, byte[]>, Action> CleanupFlvHandlers = new Dictionary<Action<object, byte[]>, Action>();
 
@@ -211,10 +213,10 @@ namespace RtmpSharp.Net
                     ClientDelegate?.Invoke(i.MethodName, i.Arguments);
                     break;
                 case AudioData a:
-                    AudioDataReceived?.Invoke(a.Data);
+                    AudioDataReceived?.Invoke(a.Timestamp, a.Data);
                     break;
                 case VideoData v:
-                    VideoDataReceived?.Invoke(v.Data);
+                    VideoDataReceived?.Invoke(v.Timestamp, v.Data);
                     break;
 				default:
 					Console.WriteLine($"Received unknown stream data: {e.GetType()}");

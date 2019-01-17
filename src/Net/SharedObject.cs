@@ -58,7 +58,7 @@ namespace RtmpSharp.Net
         {
             lock (syncMessage)
             {
-                this.client.InternalSendAsync(message);
+                this.client.InternalSendAsync(message, chunkStreamId: 3);
                 message = new SharedObjectMessage(message.Name, message.Persistent) {
                     Version = message.Version + 1
                 };

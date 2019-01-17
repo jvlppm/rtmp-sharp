@@ -106,9 +106,14 @@ namespace RtmpSharp.Net
         async Task DoInitializeStreamAsync(NetStream netStream, Func<Task<object>> p)
         {
             currentStreamInitialization = new TaskCompletionSource<int>();
+            var register = currentStreamInitialization.Task.ContinueWith(t =>
+            {
+                var serverStreamId = t.Result;
+                RegisterStream(netStream, serverStreamId);
+            }, TaskContinuationOptions.ExecuteSynchronously);
+
             await p();
-            var serverStreamId = await currentStreamInitialization.Task;
-            RegisterStream(netStream, serverStreamId);
+            await register;
         }
 
 
@@ -252,13 +257,13 @@ namespace RtmpSharp.Net
             return task;
         }
 
-        internal Task<object> InternalSendAsync(SharedObjectMessage message)
+        internal Task<object> InternalSendAsync(RtmpMessage message, int chunkStreamId)
         {
             if (disconnected) throw DisconnectException;
 
             var task = callbacks.Create(NextInvokeId());
 
-            queue(message, 3);
+            queue(message, chunkStreamId);
             return task;
         }
 
