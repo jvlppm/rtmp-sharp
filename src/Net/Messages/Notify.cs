@@ -5,20 +5,25 @@ namespace RtmpSharp.Net.Messages
 {
     class Notify : RtmpMessage
     {
-        public object Data;
+        public readonly string Action;
+        public readonly object[] Arguments;
 
-        protected Notify(PacketContentType type) : base(type) { }
+        protected Notify(PacketContentType type, string action, object[] arguments) : base(type)
+        {
+            Action = action;
+            Arguments = arguments;
+        }
     }
 
     class NotifyAmf0 : Notify
     {
-        public NotifyAmf0()
-            : base(PacketContentType.DataAmf0) { }
+        public NotifyAmf0(string action, params object[] arguments)
+            : base(PacketContentType.DataAmf0, action, arguments) { }
     }
 
     class NotifyAmf3 : Notify
     {
-        public NotifyAmf3()
-            : base(PacketContentType.DataAmf3) { }
+        public NotifyAmf3(string action, params object[] arguments)
+            : base(PacketContentType.DataAmf3, action, arguments) { }
     }
 }

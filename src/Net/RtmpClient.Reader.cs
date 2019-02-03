@@ -103,7 +103,7 @@ namespace RtmpSharp.Net
             async Task ReadOnceAsync()
             {
                 // read a bunch of bytes from the remote server
-                await ReadFromStreamAsync();
+                await ReadFromStreamAsync().ConfigureAwait(false);
 
                 // send an acknowledgement if we need it
                 MaybeSendAcknowledgements();
@@ -122,7 +122,7 @@ namespace RtmpSharp.Net
                     readSinceLastAcknowledgement -= acknowledgementLength;
 
                     var ack = new Acknowledgement((uint)(readTotal - readSinceLastAcknowledgement));
-                    owner.queue(ack, 2);
+                    owner.queue(ack, 2, 0);
                 }
             }
 
@@ -211,14 +211,14 @@ namespace RtmpSharp.Net
 
                         var message = Deserialize(next.ContentType, dereader);
                         message.Timestamp = next.Timestamp;
-                        DispatchMessage(message, streamId);
+                        DispatchMessage(message, streamId, next.MessageStreamId);
                     }
                 }
 
                 return true;
             }
 
-            void DispatchMessage(RtmpMessage message, int streamId)
+            void DispatchMessage(RtmpMessage message, int remoteChunkStreamId, uint remoteMessageStreamId)
             {
                 switch (message)
                 {
@@ -255,7 +255,7 @@ namespace RtmpSharp.Net
                         break;
 
                     default:
-                        owner.InternalReceiveEvent(message, streamId);
+                        owner.InternalReceiveEvent(message, remoteChunkStreamId, remoteMessageStreamId);
                         break;
                 }
             }
@@ -307,17 +307,18 @@ namespace RtmpSharp.Net
                             type:                 r.ReadByte());
 
                     case PacketContentType.Audio:
-                        return new AudioData(
-                            r.ReadBytes(r.Remaining));
+                        return AudioData.Read(r);
 
                     case PacketContentType.Video:
                         return new VideoData(
                             r.ReadBytes(r.Remaining));
 
                     case PacketContentType.DataAmf0:
-                        var action = (string)r.ReadAmf0Object();
-                        var data = r.ReadAmf0Object();
-                        return new NotifyMessage(action, data);
+                        var action0 = (string)r.ReadAmf0Object();
+                        List<object> parameters0 = new List<object>();
+                        while (r.Remaining > 0)
+                            parameters0.Add(r.ReadAmf0Object());
+                        return new NotifyAmf0(action0, parameters0.ToArray());
 
                     case PacketContentType.SharedObjectAmf0:
                         return ReadSharedObject(ObjectEncoding.Amf0, r);
@@ -326,7 +327,12 @@ namespace RtmpSharp.Net
                         return ReadCommand(ObjectEncoding.Amf0, contentType, r);
 
                     case PacketContentType.DataAmf3:
-                        throw NotSupportedException("data-amf3");
+                        r.ReadByte(); // Should be zero
+                        List<object> parameters3 = new List<object>();
+                        var action3 = (string)r.ReadAmf3Object();
+                        while (r.Remaining > 0)
+                            parameters3.Add(r.ReadAmf3Object());
+                        return new NotifyAmf3(action3, parameters3.ToArray());
 
                     case PacketContentType.SharedObjectAmf3:
                         return ReadSharedObject(ObjectEncoding.Amf3, r);

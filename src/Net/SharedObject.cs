@@ -1,7 +1,6 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Dynamic;
+using System.Threading;
 using System.Threading.Tasks;
 using RtmpSharp.Net.Messages;
 
@@ -15,8 +14,8 @@ namespace RtmpSharp.Net
 
         internal static SharedObject GetRemote(RtmpClient rtmpClient, string name, bool persistent)
         {
-            SharedObject shared;
-            if (!Connected.TryGetValue(name, out shared)) {
+            if (!Connected.TryGetValue(name, out SharedObject shared))
+            {
                 shared = new SharedObject(rtmpClient, name, persistent);
                 Connected[name] = shared;
                 shared.message.Events.Add(new SharedObjectMessage.ConnectEvent());
@@ -58,7 +57,7 @@ namespace RtmpSharp.Net
         {
             lock (syncMessage)
             {
-                this.client.InternalSendAsync(message, chunkStreamId: 3);
+                this.client.InternalSend(message, chunkStreamId: 3);
                 message = new SharedObjectMessage(message.Name, message.Persistent) {
                     Version = message.Version + 1
                 };
@@ -108,7 +107,14 @@ namespace RtmpSharp.Net
                 initializeCompletion.TrySetResult(null);
             }
 
-            OnSync?.Invoke(this, EventArgs.Empty);
+            var handler = OnSync;
+            if (handler != null)
+            {
+                client.CapturedContext.Send(s =>
+                {
+                    ((EventHandler)s)?.Invoke(this, EventArgs.Empty);
+                }, handler);
+            }
         }
     }
 }

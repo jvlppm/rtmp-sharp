@@ -4,6 +4,7 @@ using System.Reflection;
 using Konseki;
 using System.Collections.Generic;
 using System.Collections;
+using System.Threading;
 
 namespace RtmpSharp.Net
 {
@@ -27,9 +28,12 @@ namespace RtmpSharp.Net
             readonly object clientDelegate;
             readonly StringComparison comparison;
             readonly string tag;
+            readonly SynchronizationContext context;
 
             public ReflectionDelegate(object clientDelegate, bool ignoreCase, string tag)
             {
+                context = SynchronizationContext.Current;
+
                 this.clientDelegate = clientDelegate;
                 this.comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
                 this.tag = tag;
@@ -81,7 +85,10 @@ namespace RtmpSharp.Net
                     {
                         args = args.Concat(mParams.Skip(args.Length).Select(p => p.DefaultValue)).ToArray();
                     }
-                    best.method.Invoke(clientDelegate, args);
+                    context.Post(s =>
+                    {
+                        ((MethodInfo)s).Invoke(clientDelegate, args);
+                    }, best.method);
                 }
                 catch (Exception ex)
                 {

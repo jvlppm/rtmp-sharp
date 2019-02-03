@@ -15,7 +15,6 @@ using Konseki;
 using RtmpSharp.Messaging;
 using RtmpSharp.Messaging.Messages;
 using RtmpSharp.Net.Messages;
-using System.Xml.Linq;
 using System.Net.Sockets;
 using RtmpSharp._Sky.Hina.Extensions;
 
@@ -26,6 +25,8 @@ namespace RtmpSharp.Net
         public event EventHandler<MessageReceivedEventArgs>    MessageReceived;
         public event EventHandler<ClientDisconnectedException> Disconnected;
         public event EventHandler<Exception>                   CallbackException;
+
+        public readonly SynchronizationContext CapturedContext;
 
         // Object to handle server invocations.
         public IClientDelegate ClientDelegate { get; set; }
@@ -44,7 +45,7 @@ namespace RtmpSharp.Net
 
         // fn(message: RtmpMessage, chunk_stream_id: int) -> None
         //     queues a message to be written. this is assigned post-construction by `connectasync`.
-        Action<RtmpMessage, int> queue;
+        Action<RtmpMessage, int, int> queue;
 
         // the client id that was assigned to us by the remote peer. this is assigned post-construction by
         // `connectasync`, and may be null if no explicit client id was provided.
@@ -59,10 +60,9 @@ namespace RtmpSharp.Net
         // a tuple describing the cause of the disconnection. either value may be null.
         (string message, Exception inner) cause;
 
-        readonly IDictionary<int, Channel> OpenChannels = new Dictionary<int, Channel>();
-
         RtmpClient(SerializationContext context, TcpClient tcp)
         {
+            CapturedContext = SynchronizationContext.Current;
             this.tcp = tcp;
             this.context   = context;
             this.callbacks = new TaskCallbackManager<uint, object>();
@@ -92,42 +92,27 @@ namespace RtmpSharp.Net
             SharedObject.SetExceptionForAll(DisconnectException);
             callbacks.SetExceptionForAll(DisconnectException);
 
-			WrapCallback(() => Disconnected?.Invoke(this, DisconnectException));
+            WrapCallback(() => Disconnected?.Invoke(this, DisconnectException));
         }
-
-        TaskCompletionSource<int> currentStreamInitialization;
-        Task streamInitialization = Task.CompletedTask;
-
-        internal Task InitializeStreamAsync(NetStream netStream, Func<Task<object>> p)
-        {
-            return streamInitialization = streamInitialization.ContinueWith(t => DoInitializeStreamAsync(netStream, p)).Unwrap();
-        }
-
-        async Task DoInitializeStreamAsync(NetStream netStream, Func<Task<object>> p)
-        {
-            currentStreamInitialization = new TaskCompletionSource<int>();
-            var register = currentStreamInitialization.Task.ContinueWith(t =>
-            {
-                var serverStreamId = t.Result;
-                RegisterStream(netStream, serverStreamId);
-            }, TaskContinuationOptions.ExecuteSynchronously);
-
-            await p();
-            await register;
-        }
-
 
         // this method will never throw an exception unless that exception will be fatal to this connection, and thus
         // the connection would be forced to close.
-        void InternalReceiveEvent(RtmpMessage message, int channelId)
+        void InternalReceiveEvent(RtmpMessage message, int remoteChunkStreamId, uint remoteMessageStreamId)
         {
+            if (!(message is AudioData || message is VideoData))
+            {
+                if (!(message is UserControlMessage uc) || uc.EventType != UserControlMessage.Type.PingRequest)
+                {
+                    Console.WriteLine($"Received message: {message}");
+                }
+            }
             switch (message)
             {
                 case UserControlMessage u when u.EventType == UserControlMessage.Type.PingRequest:
-                    queue(new UserControlMessage(UserControlMessage.Type.PingResponse, u.Values), 2);
+                    queue(new UserControlMessage(UserControlMessage.Type.PingResponse, u.Values), 2, 0);
                     break;
 
-                case UserControlMessage u when u.EventType == UserControlMessage.Type.StreamBegin && channelId == 2 && currentStreamInitialization != null:
+                case UserControlMessage u when u.EventType == UserControlMessage.Type.StreamBegin && remoteChunkStreamId == 2 && currentStreamInitialization != null:
                     currentStreamInitialization.TrySetResult((int)u.Values[0]);
                     break;
 
@@ -137,22 +122,23 @@ namespace RtmpSharp.Net
                         shared.InternalSync(s);
                     break;
 
-                case NotifyMessage n when channelId == 0:
-                    ClientDelegate?.Invoke(n.Message, new[] { n.Parameter });
+                case Notify n when remoteChunkStreamId == 0:
+                    ClientDelegate?.Invoke(n.Action, n.Arguments);
                     break;
 
                 case Invoke i:
+
                     var param = i.Arguments?.FirstOrDefault();
 
                     switch (i.MethodName)
                     {
                         case "_result":
-							if (param is IDictionary<string, object> resultObj &&
-							    resultObj.ContainsKey("code") &&
-							    //resultObj.ContainsKey("description") && 
-							    //resultObj.TryGetValue("code", out var resultCode) && resultCode is "NetConnection.Connect.Rejected" &&
-							    resultObj.TryGetValue("level", out var resultLevel) && resultLevel is "error")
-								goto case "_error";
+                            if (param is IDictionary<string, object> resultObj &&
+                               resultObj.ContainsKey("code") &&
+                                //resultObj.ContainsKey("description") &&
+                                //resultObj.TryGetValue("code", out var resultCode) && resultCode is "NetConnection.Connect.Rejected" &&
+                                resultObj.TryGetValue("level", out var resultLevel) && resultLevel is "error")
+                                goto case "_error";
 
                             // unwrap the flex wrapper object if it is present
                             var a = param as AcknowledgeMessage;
@@ -165,19 +151,21 @@ namespace RtmpSharp.Net
                                 case string str:
                                     callbacks.SetException(i.InvokeId, new Exception(str));
                                     break;
-								case IDictionary<string, object> obj:
-									var error = new InvocationException() {
-										FaultCode = obj.TryGetValue("code", out var code) && code != null? code.ToString() : null,
-										FaultString = obj.TryGetValue("description", out var desc) && desc != null? desc.ToString() : null,
-										RootCause = obj.TryGetValue("application", out var app) && app != null? app.ToString() : null,
-										ExtendedData = obj
-									};
-									
-									if (obj.TryGetValue("code", out var errorCode) && errorCode is "NetConnection.Connect.Rejected")
-										InternalCloseConnection((string)obj["description"], error);
-									else {
-                                		callbacks.SetException(i.InvokeId, error);
-									}
+                                case IDictionary<string, object> obj:
+                                    var error = new InvocationException()
+                                    {
+                                        FaultCode = obj.TryGetValue("code", out var code) && code != null ? code.ToString() : null,
+                                        FaultString = obj.TryGetValue("description", out var desc) && desc != null ? desc.ToString() : null,
+                                        RootCause = obj.TryGetValue("application", out var app) && app != null ? app.ToString() : null,
+                                        ExtendedData = obj
+                                    };
+
+                                    if (obj.TryGetValue("code", out var errorCode) && errorCode is "NetConnection.Connect.Rejected")
+                                        InternalCloseConnection((string)obj["description"], error);
+                                    else
+                                    {
+                                        callbacks.SetException(i.InvokeId, error);
+                                    }
                                     break;
 
                                 case ErrorMessage b:
@@ -195,19 +183,6 @@ namespace RtmpSharp.Net
                                 InternalReceiveSubscriptionValue(c.ClientId, c.Headers.GetDefault(AsyncMessageHeaders.Subtopic) as string, c.Body);
                             break;
 
-                        case "onstatus":
-                        case "onStatus":
-							switch (param)
-							{
-								case IDictionary<string, object> o:
-									Console.WriteLine($"received status: {{\n{string.Join(",\n", o.Select(kv => $"  \"{kv.Key}\": \"{kv.Value}\""))}\n}}");
-									break;
-								default:
-									Kon.Trace("received status");
-									break;
-							}
-                            break;
-
                         // [2016-12-26] workaround roslyn compiler bug that would cause the following default cause to
                         // cause a nullreferenceexception on the owning switch statement.
                         //     default:
@@ -220,19 +195,25 @@ namespace RtmpSharp.Net
                         //         break;
 
                         default:
-							ClientDelegate?.Invoke(i.MethodName, i.Arguments);
+                            Console.WriteLine($"Received invoke {i.MethodName} ( {string.Join(", ", i.Arguments)} )");
+                            if (remoteMessageStreamId == 0)
+                                ClientDelegate?.Invoke(i.MethodName, i.Arguments);
                             break;
                     }
 
                     break;
                 default:
-                    Channel channel;
-                    if (OpenChannels.TryGetValue(channelId, out channel))
+                    if (!(message is AudioData || message is VideoData))
+                    {
+                        Console.WriteLine($"Received message on stream: {remoteChunkStreamId} - {message}");
+                    }
+                    Net.ChunkStream channel;
+                    if (ReceivingChunks.TryGetValue(remoteChunkStreamId, out channel))
                     {
                         channel.InternalReceiveMessage(message);
                     }
                     else {
-                        Console.WriteLine($"Received message on unknown channel: {channelId} - {message}");
+                        Console.WriteLine($"Received message on unknown stream: {remoteChunkStreamId} - {message}");
                     }
                     break;
             }
@@ -246,24 +227,17 @@ namespace RtmpSharp.Net
         internal uint NextInvokeId() => (uint)Interlocked.Increment(ref invokeId);
         public ClientDisconnectedException DisconnectException { get; private set; }
 
-        // calls a remote endpoint, sent along the specified chunk stream id, on message stream id #0
-        internal Task<object> InternalCallAsync(Invoke request, int chunkStreamId)
+        internal void InternalSend(RtmpMessage message, int chunkStreamId, int messageStreamId = 0)
         {
             if (disconnected) throw DisconnectException;
-
-            var task = callbacks.Create(request.InvokeId);
-
-            queue(request, chunkStreamId);
-            return task;
+            queue(message, chunkStreamId, messageStreamId);
         }
 
-        internal Task<object> InternalSendAsync(RtmpMessage message, int chunkStreamId)
+        internal Task<object> InternalInvokeAsync(Invoke message, int chunkStreamId, int messageStreamId = 0)
         {
             if (disconnected) throw DisconnectException;
-
-            var task = callbacks.Create(NextInvokeId());
-
-            queue(message, chunkStreamId);
+            var task = callbacks.Create(message.InvokeId);
+            queue(message, chunkStreamId, messageStreamId);
             return task;
         }
 
@@ -340,7 +314,7 @@ namespace RtmpSharp.Net
             reader.RunAsync().Forget();
             writer.RunAsync(chunkLength).Forget();
 
-            client.queue    = (message, chunkStreamId) => writer.QueueWrite(message, chunkStreamId);
+            client.queue    = (message, chunkStreamId, messageStreamId) => writer.QueueWrite(message, chunkStreamId, messageStreamId: (uint)messageStreamId);
             client.clientId = await RtmpConnectAsync(
                 client:    client,
                 appName:   options.AppName,
@@ -399,7 +373,7 @@ namespace RtmpSharp.Net
                 },
             };
 
-            var response = await client.InternalCallAsync(request, chunkStreamId: 3) as IDictionary<string, object>;
+            var response = await client.InternalInvokeAsync(request, chunkStreamId: 3) as IDictionary<string, object>;
 
             return response != null && (response.TryGetValue("clientId", out var clientId) || response.TryGetValue("id", out clientId))
                 ? clientId as string
@@ -414,9 +388,13 @@ namespace RtmpSharp.Net
         // some servers will fail if `destination` is null (but not if it's an empty string)
         const string NoDestination = "";
 
+        public async Task<T> InvokeAsync<T>(int chunkStreamId, int messageStreamId, string method, params object[] arguments)
+            => NanoTypeConverter.ConvertTo<T>(
+                await InternalInvokeAsync(new InvokeAmf0() { MethodName = method, Arguments = arguments, InvokeId = NextInvokeId() }, chunkStreamId, messageStreamId));
+
         public async Task<T> InvokeAsync<T>(string method, params object[] arguments)
             => NanoTypeConverter.ConvertTo<T>(
-                await InternalCallAsync(new InvokeAmf0() { MethodName = method, Arguments = arguments, InvokeId = NextInvokeId() }, 3));
+                await InternalInvokeAsync(new InvokeAmf0() { MethodName = method, Arguments = arguments, InvokeId = NextInvokeId() }, 3));
 
         public async Task<T> InvokeAsync<T>(string endpoint, string destination, string method, params object[] arguments)
         {
@@ -446,7 +424,7 @@ namespace RtmpSharp.Net
             };
 
             return NanoTypeConverter.ConvertTo<T>(
-                await InternalCallAsync(request, chunkStreamId: 3));
+                await InternalInvokeAsync(request, chunkStreamId: 3));
         }
 
         public async Task<SharedObject> GetRemoteSharedObjectAsync(string name, bool persistent = false)
@@ -461,46 +439,6 @@ namespace RtmpSharp.Net
             if (disconnected) throw DisconnectException;
             Check.NotNull(name);
             return SharedObject.GetRemote(this, name, persistent);
-        }
-
-        public async Task<NetStream> CreateStreamAsync()
-        {
-            var streamId = await InvokeAsync<int>("createStream");
-            var data = new Channel(this, streamId * 5 + 4);
-            var video = new Channel(this, streamId * 5 + 5);
-            var audio = new Channel(this, streamId * 5 + 6);
-
-            return new NetStream(this, streamId, data, video, audio);
-        }
-
-        void RegisterStream(NetStream stream, int streamId)
-        {
-            stream.ServerStreamId = streamId;
-            stream.data.ServerChannelId = streamId * 5 - 1;
-            stream.video.ServerChannelId = streamId * 5;
-            stream.audio.ServerChannelId = streamId * 5 + 1;
-
-            OpenChannels[stream.data.ServerChannelId] = stream.data;
-            OpenChannels[stream.video.ServerChannelId] = stream.video;
-            OpenChannels[stream.audio.ServerChannelId] = stream.audio;
-        }
-
-		internal void DeleteStream(NetStream stream)
-		{
-            if (stream.ServerStreamId != 0)
-            {
-                OpenChannels.Remove(stream.audio.ServerChannelId);
-                OpenChannels.Remove(stream.video.ServerChannelId);
-                OpenChannels.Remove(stream.audio.ServerChannelId);
-            }
-		}
-
-        Channel CreateChannel(int id)
-        {
-            var stream = new Channel(this, id);
-            OpenChannels[id] = stream;
-
-            return stream;
         }
 
         public async Task<bool> SubscribeAsync(string endpoint, string destination, string subtopic, string clientId)
@@ -568,18 +506,6 @@ namespace RtmpSharp.Net
                 ClientId    = clientId,
                 Destination = NoDestination,
                 Operation   = CommandMessage.Operations.Logout
-            };
-
-            return InvokeAsync<object>(null, message);
-        }
-
-        public Task PingAsync()
-        {
-            var message = new CommandMessage
-            {
-                ClientId    = clientId,
-                Destination = NoDestination,
-                Operation   = CommandMessage.Operations.ClientPing
             };
 
             return InvokeAsync<object>(null, message);

@@ -46,13 +46,13 @@ namespace RtmpSharp.Net
             }
 
 
-            public void QueueWrite(RtmpMessage message, int chunkStreamId, bool external = true)
+            public void QueueWrite(RtmpMessage message, int chunkStreamId, bool external = true, uint messageStreamId = 0)
             {
                 // we save ourselves from synchronizing on chunk length because we never modify it post-initialization
                 if (external && message is ChunkLength)
                     throw new InvalidOperationException("cannot modify chunk length after stream has begun");
 
-                queue.Enqueue(new Packet(chunkStreamId, message.ContentType, Serialize(message)));
+                queue.Enqueue(new Packet(chunkStreamId, messageStreamId, message.ContentType, Serialize(message)));
                 reset.Set();
             }
 
@@ -70,7 +70,7 @@ namespace RtmpSharp.Net
                 {
                     try
                     {
-                        await WriteOnceAsync();
+                        await WriteOnceAsync().ConfigureAwait(false);
                     }
                     catch (TaskCanceledException)
                     {
@@ -88,7 +88,7 @@ namespace RtmpSharp.Net
 
             async Task WriteOnceAsync()
             {
-                await reset.WaitAsync();
+                await reset.WaitAsync().ConfigureAwait(false);
 
                 while (!token.IsCancellationRequested && queue.TryDequeue(out var packet))
                 {
@@ -121,14 +121,14 @@ namespace RtmpSharp.Net
                     next.Ready             = true;
                     next.ContentType       = packet.Type;
                     next.ChunkStreamId     = packet.StreamId;
-                    next.MessageStreamId   = 0;
+                    next.MessageStreamId   = packet.MessageStreamId;
                     next.MessageLength     = packetLength;
                     next.Timestamp         = Ts.CurrentTime;
 
                     streams[packet.StreamId] = next;
                     ChunkStream.WriteTo(writer, previous, next, chunkLength, packet.Span);
 
-                    await stream.WriteAsync(writer.Span, token);
+                    await stream.WriteAsync(writer.Span, token).ConfigureAwait(false);
                     writer.Return();
                 }
             }
@@ -189,13 +189,16 @@ namespace RtmpSharp.Net
                         break;
 
                     case PacketContentType.Audio:
+                        ((AudioData)message).Write(w);
+                        break;
                     case PacketContentType.Video:
                         var g = (ByteData)message;
                         w.WriteBytes(g.Data);
                         break;
 
                     case PacketContentType.DataAmf0:
-                        throw NotSupportedException("data-amf0");
+                        WriteNotify(ObjectEncoding.Amf0, w, (Notify)message);
+                        break;
 
                     case PacketContentType.SharedObjectAmf0:
                         WriteSharedObject(ObjectEncoding.Amf0, w, (SharedObjectMessage)message);
@@ -206,7 +209,9 @@ namespace RtmpSharp.Net
                         break;
 
                     case PacketContentType.DataAmf3:
-                        throw NotSupportedException("data-amf3");
+                        w.WriteByte((byte)0);
+                        WriteNotify(ObjectEncoding.Amf3, w, (Notify)message);
+                        break;
 
                     case PacketContentType.SharedObjectAmf3:
                         w.WriteByte((byte)0);
@@ -230,13 +235,20 @@ namespace RtmpSharp.Net
                 return w.Span;
             }
 
+            void WriteNotify(ObjectEncoding encoding, AmfWriter w, Notify message)
+            {
+                w.WriteBoxedAmf0Object(encoding, message.Action);
+                foreach (var arg in message.Arguments)
+                    w.WriteBoxedAmf0Object(encoding, arg);
+            }
+
             // most rtmp servers we are interested in only support amf3 via an amf0 envelope
             void WriteCommand(ObjectEncoding encoding, AmfWriter w, RtmpMessage message)
             {
                 switch (message)
                 {
                     case Notify notify:
-                        w.WriteBoxedAmf0Object(encoding, notify.Data);
+                        w.WriteBoxedAmf0Object(encoding, notify.Action);
                         break;
 
                     case Invoke request:
@@ -274,13 +286,15 @@ namespace RtmpSharp.Net
             struct Packet
             {
                 // this is the chunk stream id. as above, we only ever use one message stream per chunk stream.
+                public uint MessageStreamId;
                 public int               StreamId;
                 public Space<byte>       Span;
                 public PacketContentType Type;
 
-                public Packet(int streamId, PacketContentType type, Space<byte> span)
+                public Packet(int streamId, uint messageStreamId, PacketContentType type, Space<byte> span)
                 {
                     StreamId = streamId;
+                    MessageStreamId = messageStreamId;
                     Type = type;
                     Span = span;
                 }
