@@ -110,10 +110,17 @@ namespace RtmpSharp.Net
             var handler = OnSync;
             if (handler != null)
             {
-                client.CapturedContext.Send(s =>
+                if (client.CapturedContext != null)
                 {
-                    ((EventHandler)s)?.Invoke(this, EventArgs.Empty);
-                }, handler);
+                    client.CapturedContext.Send(s =>
+                    {
+                        ((EventHandler)s)?.Invoke(this, EventArgs.Empty);
+                    }, handler);
+                }
+                else
+                {
+                    handler?.Invoke(this, EventArgs.Empty);
+                }
             }
         }
     }

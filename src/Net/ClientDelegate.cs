@@ -85,10 +85,15 @@ namespace RtmpSharp.Net
                     {
                         args = args.Concat(mParams.Skip(args.Length).Select(p => p.DefaultValue)).ToArray();
                     }
-                    context.Post(s =>
+
+                    if (context != null)
                     {
-                        ((MethodInfo)s).Invoke(clientDelegate, args);
-                    }, best.method);
+                        context.Post(s =>
+                       {
+                           ((MethodInfo)s).Invoke(clientDelegate, args);
+                       }, best.method);
+                    }
+                    else { best.method.Invoke(clientDelegate, args); }
                 }
                 catch (Exception ex)
                 {

@@ -6,7 +6,7 @@ namespace RtmpSharp.Net.Extensions.FLV
 {
     public static class NetStreamExtensionsFLV
     {
-        public static IDisposable WatchAsFlv(this NetStream netStream, Action<object, byte[]> onDataReceived)
+        public static IDisposable WatchAsFlv(this NetStream netStream, Action<object, byte[]> onDataReceived, bool hasAudio, bool hasVideo)
         {
             byte[] flvHeader = {
                 (byte) 'F',
@@ -34,7 +34,7 @@ namespace RtmpSharp.Net.Extensions.FLV
 
             object sync = new object();
 
-            //flvHeader[4] = (byte)((hasAudio? 4 : 0) | (hasVideo? 1 : 0));
+            flvHeader[4] = (byte)((hasAudio? 4 : 0) | (hasVideo? 1 : 0));
             onDataReceived(netStream, flvHeader);
 
             uint lastTimestampValue = 0;

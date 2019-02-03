@@ -59,6 +59,10 @@ namespace RtmpSharp.Net
 
         public void Publish(PublishType type, string videoId)
         {
+#if TEST
+            throw new InvalidOperationException("Can't publish on test mode");
+#endif
+
             string mode = type.ToString().ToLowerInvariant();
             Invoke("publish", videoId, mode);
         }
@@ -165,7 +169,7 @@ namespace RtmpSharp.Net
             Append,
         }
 
-        #region IDisposable Support
+#region IDisposable Support
 
         protected virtual void Dispose(bool disposing)
         {
@@ -182,6 +186,6 @@ namespace RtmpSharp.Net
         {
             Dispose(true);
         }
-        #endregion
+#endregion
     }
 }
