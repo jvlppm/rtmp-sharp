@@ -1,5 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
+using System.Buffers;
+using System.IO.Pipelines;
 using RtmpSharp.IO;
 
 namespace RtmpSharp.Net.Messages
@@ -79,7 +80,7 @@ namespace RtmpSharp.Net.Messages
     interface IBufferSequence
     {
         int Length { get; }
-        IEnumerable<byte[]> Read();
+        void Write(PipeWriter writer);
     }
 
     public delegate void SoundDataHandler(SoundProperties soundProperties, byte[] soundData);
@@ -100,9 +101,9 @@ namespace RtmpSharp.Net.Messages
 
         public int Length => Data.Length;
 
-        public IEnumerable<byte[]> Read()
+        public void Write(PipeWriter writer)
         {
-            yield return Data;
+            writer.Write(Data);
         }
 
         protected ByteData(byte[] data, PacketContentType type) : base(type)
@@ -113,24 +114,22 @@ namespace RtmpSharp.Net.Messages
     {
         private readonly SoundProperties properties;
         private readonly byte[] soundData;
+        private readonly bool hasData;
 
-        public int Length => soundData.Length + 1;
-
-        public IEnumerable<byte[]> Read()
-        {
-            yield return new byte[] { properties.GetHeader() };
-            yield return soundData;
-        }
+        public int Length => hasData? soundData.Length + 1 : 0;
 
         public AudioData(SoundProperties properties, byte[] soundData)
              : base(PacketContentType.Audio)
         {
             this.properties = properties;
             this.soundData = soundData;
+            hasData = true;
         }
 
         internal static RtmpMessage Read(AmfReader r)
         {
+            if (r.Remaining < 1) return default(AudioData);
+
             var soundInfo = SoundProperties.FromHeader(r.ReadByte());
             var soundData = r.ReadBytes(r.Remaining);
 
@@ -139,9 +138,20 @@ namespace RtmpSharp.Net.Messages
 
         internal void Write(AmfWriter w)
         {
+            if (!hasData) return;
             byte firstByte = properties.GetHeader();
             w.WriteByte(firstByte);
             w.WriteBytes(soundData);
+        }
+
+        public void Write(PipeWriter writer)
+        {
+            var size = Length;
+            if (size <= 0) return;
+            var memory = writer.GetMemory(size).Span;
+            memory[0] = properties.GetHeader();
+            soundData.CopyTo(memory.Slice(1));
+            writer.Advance(size);
         }
     }
 

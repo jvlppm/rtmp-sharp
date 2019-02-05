@@ -1,12 +1,25 @@
 ﻿using System;
+using System.Buffers;
+using System.IO.Pipelines;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Hina;
+using Hina.Threading;
 using RtmpSharp.Net.Messages;
 
 namespace RtmpSharp.Net.Extensions.FLV
 {
     public static class NetStreamExtensionsFLV
     {
-        public static IDisposable WatchAsFlv(this NetStream netStream, Action<object, byte[]> onDataReceived, bool hasAudio, bool hasVideo)
+        public static IDisposable WatchAsFlv(this NetStream netStream, PipeWriter writer, bool hasAudio, bool hasVideo)
+        {
+            var cts = new CancellationTokenSource();
+            netStream.WatchAsFlv(writer, hasAudio, hasVideo, cts.Token).Forget();
+            return OnDispose.Fire(cts.Cancel);
+        }
+
+        public static async Task WatchAsFlv(this NetStream netStream, PipeWriter writer, bool hasAudio, bool hasVideo, CancellationToken cancellation)
         {
             byte[] flvHeader = {
                 (byte) 'F',
@@ -29,36 +42,42 @@ namespace RtmpSharp.Net.Extensions.FLV
             };
             byte[] lastTagSizeBuffer = { 0, 0, 0, 0 };
 
-            if (onDataReceived == null) throw new ArgumentNullException(nameof(onDataReceived));
-
-
             object sync = new object();
 
             flvHeader[4] = (byte)((hasAudio? 4 : 0) | (hasVideo? 1 : 0));
-            onDataReceived(netStream, flvHeader);
+
+            writer.Write(flvHeader);
 
             uint lastTimestampValue = 0;
             int lastTagSize = 0;
 
+            BufferBlock<RtmpMessage> writeQueue = new BufferBlock<RtmpMessage>();
+            void WriteToFLV(RtmpMessage message) => writeQueue.Post(message);
+
             netStream.AudioVideoDataReceived += WriteToFLV;
 
-            void WriteToFLV(RtmpMessage message)
+            try
             {
-                byte type;
-                IBufferSequence messageData;
-                switch (message)
+                while (true)
                 {
-                    case AudioData a: type = 8; messageData = a; break;
-                    case VideoData v: type = 9; messageData = v; break;
-                    default: return;
-                }
+                    var message = await writeQueue.ReceiveAsync(cancellation);
 
-                var ts = message.Timestamp;
-                if (ts < lastTimestampValue)
-                    return;
+                    if (message == null)
+                        break;
 
-                lock (sync)
-                {
+                    byte type;
+                    IBufferSequence messageData;
+                    switch (message)
+                    {
+                        case AudioData a: type = 8; messageData = a; break;
+                        case VideoData v: type = 9; messageData = v; break;
+                        default: continue;
+                    }
+
+                    var ts = message.Timestamp;
+                    if (ts < lastTimestampValue)
+                        continue;
+
                     lastTimestampValue = ts;
 
                     lastTagSizeBuffer[0] = (byte)(lastTagSize >> 24);
@@ -76,17 +95,23 @@ namespace RtmpSharp.Net.Extensions.FLV
                     flvTagHeader[6] = (byte)(ts >> 0);
                     flvTagHeader[7] = (byte)(ts >> 24);
 
-                    onDataReceived(netStream, lastTagSizeBuffer);
-                    onDataReceived(netStream, flvTagHeader);
-                    foreach (var buffer in messageData.Read())
-                        onDataReceived(netStream, buffer);
+                    writer.Write(lastTagSizeBuffer);
+                    writer.Write(flvTagHeader);
+                    messageData.Write(writer);
+
+                    var result = await writer.FlushAsync(cancellation);
+
+                    if (result.IsCanceled || result.IsCompleted)
+                        break;
 
                     lastTagSize = flvTagHeader.Length + messageData.Length;
                 }
             }
-            return new OnDispose(delegate {
-                netStream.AudioVideoDataReceived -= WriteToFLV;
-            });
+            catch (OperationCanceledException) { }
+
+            netStream.AudioVideoDataReceived -= WriteToFLV;
+
+            writer.Complete();
         }
     }
 }
