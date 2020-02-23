@@ -52,7 +52,13 @@ namespace RtmpSharp.Net.Extensions.FLV
             int lastTagSize = 0;
 
             BufferBlock<RtmpMessage> writeQueue = new BufferBlock<RtmpMessage>();
-            void WriteToFLV(RtmpMessage message) => writeQueue.Post(message);
+            void WriteToFLV(RtmpMessage message)
+            {
+                var blockAudio = message.ContentType == PacketContentType.Audio && !hasAudio;
+                var blockVideo = message.ContentType == PacketContentType.Video && !hasVideo;
+                if (!blockAudio && !blockVideo)
+                    writeQueue.Post(message);
+            }
 
             netStream.AudioVideoDataReceived += WriteToFLV;
 
@@ -74,7 +80,7 @@ namespace RtmpSharp.Net.Extensions.FLV
                         default: continue;
                     }
 
-                    var ts = message.Timestamp;
+                    var ts = (uint)(message.Timestamp * 0.98);
                     if (ts < lastTimestampValue)
                         continue;
 
