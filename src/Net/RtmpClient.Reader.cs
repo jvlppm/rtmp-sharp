@@ -210,8 +210,11 @@ namespace RtmpSharp.Net
                         dereader.Rebind(builder.Span);
 
                         var message = Deserialize(next.ContentType, dereader);
-                        message.Timestamp = next.Timestamp;
-                        DispatchMessage(message, streamId, next.MessageStreamId);
+                        if (message != null)
+                        {
+                            message.Timestamp = next.Timestamp;
+                            DispatchMessage(message, streamId, next.MessageStreamId);
+                        }
                     }
                 }
 
